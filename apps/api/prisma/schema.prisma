@@ -1,0 +1,680 @@
+// ============================================================
+// PRISMA SCHEMA — ForexBot Marketplace
+// ============================================================
+// Decisión: Prisma como ORM sobre TypeORM o Sequelize.
+// Prisma genera un cliente fuertemente tipado desde el schema,
+// lo que hace imposible escribir queries con tipos incorrectos.
+// En un equipo junior/mid esto elimina una clase entera de bugs.
+// Trade-off: migraciones más rígidas que TypeORM, y el Prisma Client
+// no soporta queries 100% raw sin perder las ventajas.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// ENUMS
+// ============================================================
+
+enum UserStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+  MODERATOR
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum BotStatus {
+  DRAFT
+  PENDING_REVIEW
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum ListingType {
+  SUBSCRIPTION_MONTHLY
+  SUBSCRIPTION_YEARLY
+  ONE_TIME
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  UNPUBLISHED
+  REMOVED
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  DISPUTED
+}
+
+enum LicenseStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  SUSPENDED
+}
+
+enum AnomalySeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+enum TradeDirection {
+  BUY
+  SELL
+}
+
+enum VerificationStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// ============================================================
+// USERS
+// Soft delete: deleted_at NOT NULL = borrado lógico.
+// Nunca hard delete en entidades financieras.
+// ============================================================
+
+model User {
+  id                String      @id @default(uuid())
+  email             String
+  emailVerifiedAt   DateTime?   @map("email_verified_at")
+  passwordHash      String      @map("password_hash")
+  totpSecret        String?     @map("totp_secret") // encriptado en app layer
+  totpEnabled       Boolean     @default(false) @map("totp_enabled")
+  status            UserStatus  @default(PENDING_VERIFICATION)
+
+  // Auditoría obligatoria en todas las entidades
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+  deletedAt         DateTime?   @map("deleted_at")
+  createdBy         String?     @map("created_by")
+
+  // Relaciones
+  userRoles         UserRoleAssignment[]
+  sellerProfile     SellerProfile?
+  buyerProfile      BuyerProfile?
+  kycVerifications  KycVerification[]
+  subscriptions     Subscription[]
+  reviews           Review[]
+  auditLogs         AuditLog[]
+  apiKeys           ApiKey[]
+  refreshTokens     RefreshToken[]
+
+  @@unique([email], name: "users_email_active_unique")
+  @@index([email])
+  @@index([status])
+  @@map("users")
+}
+
+model UserRoleAssignment {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  role        UserRole
+  grantedAt   DateTime  @default(now()) @map("granted_at")
+  grantedBy   String?   @map("granted_by")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedBy   String?   @map("revoked_by")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@map("user_roles")
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  tokenHash   String    @unique @map("token_hash") // almacenamos hash, nunca el token raw
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  userAgent   String?   @map("user_agent")
+  ipAddress   String?   @map("ip_address")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ============================================================
+// PERFILES
+// Separados de users porque: no todos los users tienen ambos perfiles,
+// y los campos son muy distintos entre compradores y vendedores.
+// ============================================================
+
+model SellerProfile {
+  id                    String    @id @default(uuid())
+  userId                String    @unique @map("user_id")
+  displayName           String    @map("display_name")
+  bio                   String?
+  websiteUrl            String?   @map("website_url")
+  stripeAccountId       String?   @map("stripe_account_id")
+  stripeOnboardingDone  Boolean   @default(false) @map("stripe_onboarding_done")
+  totalRevenueCents     BigInt    @default(0) @map("total_revenue_cents")
+  totalBotsSold         Int       @default(0) @map("total_bots_sold")
+  averageRating         Decimal?  @db.Decimal(3, 2) @map("average_rating")
+  isVerified            Boolean   @default(false) @map("is_verified")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bots        Bot[]
+
+  @@map("seller_profiles")
+}
+
+model BuyerProfile {
+  id              String    @id @default(uuid())
+  userId          String    @unique @map("user_id")
+  displayName     String    @map("display_name")
+  totalSpentCents BigInt    @default(0) @map("total_spent_cents")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@map("buyer_profiles")
+}
+
+// ============================================================
+// KYC
+// Soft delete NO aplica — los registros KYC son evidencia legal.
+// Hard delete jamás. Todos los estados quedan en el historial.
+// ============================================================
+
+model KycVerification {
+  id                  String      @id @default(uuid())
+  userId              String      @map("user_id")
+  status              KycStatus   @default(NOT_STARTED)
+  providerReference   String?     @map("provider_reference") // ID en proveedor externo de KYC
+  documentType        String?     @map("document_type")
+  documentStorageKey  String?     @map("document_storage_key") // Azure Blob path
+  reviewNotes         String?     @map("review_notes")
+  reviewedBy          String?     @map("reviewed_by")
+  reviewedAt          DateTime?   @map("reviewed_at")
+  submittedAt         DateTime?   @map("submitted_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([status])
+  @@map("kyc_verifications")
+}
+
+// ============================================================
+// BOTS Y VERSIONES
+// bot_versions: control de versiones del EA binario.
+// Cada listing apunta a un bot, no a una versión específica,
+// porque el comprador siempre obtiene la última versión activa.
+// ============================================================
+
+model Bot {
+  id              String      @id @default(uuid())
+  sellerProfileId String      @map("seller_profile_id")
+  name            String
+  slug            String      @unique
+  description     String?
+  platform        String      // "MT4" | "MT5" | "MT4/MT5"
+  status          BotStatus   @default(DRAFT)
+  isVerified      Boolean     @default(false) @map("is_verified")
+  verifiedAt      DateTime?   @map("verified_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  createdBy   String?   @map("created_by")
+
+  sellerProfile       SellerProfile         @relation(fields: [sellerProfileId], references: [id])
+  versions            BotVersion[]
+  listings            BotListing[]
+  tradeHistory        TradeHistory[]
+  performanceSnapshots PerformanceSnapshot[]
+  anomalyFlags        AnomalyFlag[]
+  reviews             Review[]
+  reputationScore     ReputationScore?
+
+  @@index([sellerProfileId])
+  @@index([status])
+  @@index([slug])
+  @@map("bots")
+}
+
+model BotVersion {
+  id              String    @id @default(uuid())
+  botId           String    @map("bot_id")
+  versionNumber   String    @map("version_number") // semver: "1.0.0"
+  changelog       String?
+  storageKey      String    @map("storage_key") // Azure Blob path del .ex4/.ex5
+  fileHash        String    @map("file_hash") // SHA-256 del binario
+  isActive        Boolean   @default(false) @map("is_active")
+  publishedAt     DateTime? @map("published_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  createdBy   String?   @map("created_by")
+
+  bot         Bot       @relation(fields: [botId], references: [id], onDelete: Restrict)
+
+  @@index([botId])
+  @@map("bot_versions")
+}
+
+// ============================================================
+// LISTINGS Y CATEGORÍAS
+// Un bot puede tener múltiples listings (ej: mensual y anual).
+// Precio en centavos (INTEGER) — NUNCA floats para dinero.
+// ============================================================
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  parentId    String?   @map("parent_id")
+  sortOrder   Int       @default(0) @map("sort_order")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  parent      Category?   @relation("CategoryParent", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryParent")
+  listings    BotListing[]
+
+  @@map("categories")
+}
+
+model BotListing {
+  id              String        @id @default(uuid())
+  botId           String        @map("bot_id")
+  categoryId      String        @map("category_id")
+  listingType     ListingType   @map("listing_type")
+  status          ListingStatus @default(DRAFT)
+  priceCents      Int           @map("price_cents") // USD centavos
+  currency        String        @default("usd")
+  trialDays       Int           @default(0) @map("trial_days")
+  stripePriceId   String?       @map("stripe_price_id")
+  stripeProductId String?       @map("stripe_product_id")
+  maxLicenses     Int?          @map("max_licenses") // NULL = ilimitado
+  soldCount       Int           @default(0) @map("sold_count")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+  createdBy   String?   @map("created_by")
+
+  bot           Bot            @relation(fields: [botId], references: [id])
+  category      Category       @relation(fields: [categoryId], references: [id])
+  subscriptions Subscription[]
+  licenses      License[]
+
+  @@index([botId])
+  @@index([categoryId])
+  @@index([status])
+  @@map("bot_listings")
+}
+
+// ============================================================
+// SUSCRIPCIONES Y PAGOS
+// Stripe es la fuente de verdad para estado de suscripción.
+// Nuestra tabla es una proyección local para queries rápidas.
+// NUNCA confíes solo en tu DB — siempre verifica con Stripe en
+// decisiones críticas (ej: acceso a licencia).
+// ============================================================
+
+model Subscription {
+  id                    String              @id @default(uuid())
+  userId                String              @map("user_id")
+  botListingId          String              @map("bot_listing_id")
+  stripeSubscriptionId  String?             @unique @map("stripe_subscription_id")
+  stripeCustomerId      String?             @map("stripe_customer_id")
+  status                SubscriptionStatus  @default(TRIALING)
+  currentPeriodStart    DateTime?           @map("current_period_start")
+  currentPeriodEnd      DateTime?           @map("current_period_end")
+  cancelAtPeriodEnd     Boolean             @default(false) @map("cancel_at_period_end")
+  canceledAt            DateTime?           @map("canceled_at")
+  trialEnd              DateTime?           @map("trial_end")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  user        User          @relation(fields: [userId], references: [id])
+  botListing  BotListing    @relation(fields: [botListingId], references: [id])
+  payments    Payment[]
+  license     License?
+
+  @@index([userId])
+  @@index([botListingId])
+  @@index([stripeSubscriptionId])
+  @@map("subscriptions")
+}
+
+model Payment {
+  id                  String        @id @default(uuid())
+  subscriptionId      String?       @map("subscription_id")
+  userId              String        @map("user_id")
+  stripePaymentIntentId String?     @unique @map("stripe_payment_intent_id")
+  stripeChargeId      String?       @map("stripe_charge_id")
+  amountCents         Int           @map("amount_cents")
+  currency            String        @default("usd")
+  status              PaymentStatus @default(PENDING)
+  failureReason       String?       @map("failure_reason")
+  refundedAmountCents Int           @default(0) @map("refunded_amount_cents")
+  metadata            Json?
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  subscription  Subscription?   @relation(fields: [subscriptionId], references: [id])
+  stripeEvents  StripeEvent[]
+
+  @@index([subscriptionId])
+  @@index([stripePaymentIntentId])
+  @@map("payments")
+}
+
+// ============================================================
+// STRIPE EVENTS — Idempotencia de webhooks
+// Cada evento de Stripe se guarda ANTES de procesarlo.
+// Si llega duplicado, lo detectamos por stripe_event_id y lo ignoramos.
+// Esto es crítico: Stripe puede enviar el mismo evento múltiples veces.
+// ============================================================
+
+model StripeEvent {
+  id              String    @id @default(uuid())
+  stripeEventId   String    @unique @map("stripe_event_id")
+  eventType       String    @map("event_type")
+  paymentId       String?   @map("payment_id")
+  payload         Json
+  processedAt     DateTime? @map("processed_at")
+  processingError String?   @map("processing_error")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  payment     Payment?  @relation(fields: [paymentId], references: [id])
+
+  @@index([stripeEventId])
+  @@index([eventType])
+  @@map("stripe_events")
+}
+
+// ============================================================
+// LICENCIAS Y VALIDACIONES
+// Una licencia = un comprador autorizado para usar un bot.
+// Cada validación desde MT4/5 queda registrada.
+// Esto permite detectar licencias compartidas (abuse detection).
+// ============================================================
+
+model License {
+  id              String        @id @default(uuid())
+  subscriptionId  String?       @unique @map("subscription_id")
+  botListingId    String        @map("bot_listing_id")
+  userId          String        @map("user_id")
+  licenseKey      String        @unique @map("license_key") // UUID v4, enviado al comprador
+  status          LicenseStatus @default(ACTIVE)
+  allowedAccounts Int           @default(1) @map("allowed_accounts") // máximo de cuentas MT
+  expiresAt       DateTime?     @map("expires_at")
+  revokedAt       DateTime?     @map("revoked_at")
+  revokedReason   String?       @map("revoked_reason")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  subscription    Subscription?     @relation(fields: [subscriptionId], references: [id])
+  botListing      BotListing        @relation(fields: [botListingId], references: [id])
+  validations     LicenseValidation[]
+
+  @@index([licenseKey])
+  @@index([userId])
+  @@index([botListingId])
+  @@map("licenses")
+}
+
+model LicenseValidation {
+  id              String    @id @default(uuid())
+  licenseId       String    @map("license_id")
+  accountNumber   String    @map("account_number") // número de cuenta MT
+  brokerName      String?   @map("broker_name")
+  ipAddress       String?   @map("ip_address")
+  wasValid        Boolean   @map("was_valid")
+  failureReason   String?   @map("failure_reason")
+  responseMs      Int?      @map("response_ms")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  license     License   @relation(fields: [licenseId], references: [id])
+
+  // Justificación del índice: las queries más frecuentes son
+  // "validaciones de esta licencia en las últimas 24h" (abuse detection)
+  @@index([licenseId, createdAt])
+  @@map("license_validations")
+}
+
+// ============================================================
+// TRADE HISTORY Y MÉTRICAS
+// Particionamiento recomendado por bot_id + fecha (ver SQL raw en docs).
+// No usamos TimescaleDB porque necesitamos JOINs frecuentes contra bots/sellers.
+// El índice compuesto (bot_id, opened_at) es CRÍTICO — sin él las queries explotan.
+// ============================================================
+
+model TradeHistory {
+  id              String          @id @default(uuid())
+  botId           String          @map("bot_id")
+  externalTradeId String?         @map("external_trade_id") // ticket MT
+  direction       TradeDirection
+  symbol          String
+  lotSize         Decimal         @db.Decimal(10, 2) @map("lot_size")
+  openPrice       Decimal         @db.Decimal(10, 5) @map("open_price")
+  closePrice      Decimal?        @db.Decimal(10, 5) @map("close_price")
+  stopLoss        Decimal?        @db.Decimal(10, 5) @map("stop_loss")
+  takeProfit      Decimal?        @db.Decimal(10, 5) @map("take_profit")
+  profitUsd       Decimal?        @db.Decimal(10, 2) @map("profit_usd")
+  commissionUsd   Decimal         @default(0) @db.Decimal(10, 2) @map("commission_usd")
+  swapUsd         Decimal         @default(0) @db.Decimal(10, 2) @map("swap_usd")
+  openedAt        DateTime        @map("opened_at")
+  closedAt        DateTime?       @map("closed_at")
+  durationSeconds Int?            @map("duration_seconds")
+  accountBalance  Decimal?        @db.Decimal(15, 2) @map("account_balance") // balance antes del trade
+  verificationStatus VerificationStatus @default(PENDING) @map("verification_status")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  bot         Bot       @relation(fields: [botId], references: [id])
+
+  @@index([botId, openedAt]) // el índice más importante del schema
+  @@index([botId, verificationStatus])
+  @@map("trade_history")
+}
+
+model PerformanceSnapshot {
+  id                String    @id @default(uuid())
+  botId             String    @map("bot_id")
+  snapshotDate      DateTime  @map("snapshot_date") @db.Date
+  totalTrades       Int       @map("total_trades")
+  winRate           Decimal   @db.Decimal(5, 4) @map("win_rate") // 0.0000 - 1.0000
+  profitFactor      Decimal?  @db.Decimal(10, 4) @map("profit_factor")
+  sharpeRatio       Decimal?  @db.Decimal(10, 4) @map("sharpe_ratio")
+  sortinoRatio      Decimal?  @db.Decimal(10, 4) @map("sortino_ratio")
+  maxDrawdownPct    Decimal?  @db.Decimal(8, 4) @map("max_drawdown_pct")
+  maxDrawdownAbs    Decimal?  @db.Decimal(15, 2) @map("max_drawdown_abs")
+  expectancy        Decimal?  @db.Decimal(10, 4)
+  avgRrr            Decimal?  @db.Decimal(10, 4) @map("avg_rrr")
+  recoveryFactor    Decimal?  @db.Decimal(10, 4) @map("recovery_factor")
+  calmarRatio       Decimal?  @db.Decimal(10, 4) @map("calmar_ratio")
+  totalProfitUsd    Decimal   @db.Decimal(15, 2) @map("total_profit_usd")
+  rawMetrics        Json?     @map("raw_metrics") // métricas extra del analytics engine
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  bot         Bot       @relation(fields: [botId], references: [id])
+
+  @@unique([botId, snapshotDate])
+  @@index([botId, snapshotDate])
+  @@map("performance_snapshots")
+}
+
+model AnomalyFlag {
+  id              String          @id @default(uuid())
+  botId           String          @map("bot_id")
+  anomalyType     String          @map("anomaly_type") // "martingale", "excessive_risk", etc.
+  severity        AnomalySeverity
+  score           Int             // 0-100
+  description     String
+  metadata        Json?           // datos del algoritmo de detección
+  resolvedAt      DateTime?       @map("resolved_at")
+  resolvedBy      String?         @map("resolved_by")
+  resolvedNote    String?         @map("resolved_note")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  bot         Bot       @relation(fields: [botId], references: [id])
+
+  @@index([botId, severity])
+  @@index([resolvedAt]) // para queries "anomalías activas"
+  @@map("anomaly_flags")
+}
+
+// ============================================================
+// REVIEWS Y REPUTACIÓN
+// ============================================================
+
+model Review {
+  id          String    @id @default(uuid())
+  botId       String    @map("bot_id")
+  userId      String    @map("user_id")
+  rating      Int       // 1-5
+  title       String?
+  body        String?
+  isVerified  Boolean   @default(false) @map("is_verified") // compra verificada
+  isModerated Boolean   @default(false) @map("is_moderated")
+  moderatedBy String?   @map("moderated_by")
+  moderatedAt DateTime? @map("moderated_at")
+  hiddenAt    DateTime? @map("hidden_at") // soft-hide por moderación
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  bot         Bot       @relation(fields: [botId], references: [id])
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@unique([botId, userId]) // un review por bot por usuario
+  @@index([botId])
+  @@map("reviews")
+}
+
+model ReputationScore {
+  id                String    @id @default(uuid())
+  botId             String    @unique @map("bot_id")
+  overallScore      Decimal   @db.Decimal(3, 2) @map("overall_score") // 0.00-5.00
+  totalReviews      Int       @default(0) @map("total_reviews")
+  verifiedReviews   Int       @default(0) @map("verified_reviews")
+  performanceScore  Decimal?  @db.Decimal(3, 2) @map("performance_score")
+  reliabilityScore  Decimal?  @db.Decimal(3, 2) @map("reliability_score")
+  lastCalculatedAt  DateTime  @map("last_calculated_at")
+
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  bot         Bot       @relation(fields: [botId], references: [id])
+
+  @@map("reputation_scores")
+}
+
+// ============================================================
+// API KEYS — Para vendedores (EA Bridge) vs JWT de usuarios
+// Son entidades distintas con distintos scopes y TTLs.
+// Un API key es para machine-to-machine (MT4 → API).
+// Un JWT es para human-to-machine (browser → API).
+// NUNCA mezcles estos dos mecanismos de auth.
+// ============================================================
+
+model ApiKey {
+  id          String    @id @default(uuid())
+  userId      String    @map("user_id")
+  name        String    // descripción del uso, ej: "EA Bridge MT5"
+  keyHash     String    @unique @map("key_hash") // SHA-256 del key, nunca el key raw
+  keyPrefix   String    @map("key_prefix") // primeros 8 chars para identificación visual
+  scopes      String[]  // ["bot:upload", "license:validate"]
+  expiresAt   DateTime? @map("expires_at")
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  user        User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([keyHash])
+  @@map("api_keys")
+}
+
+// ============================================================
+// AUDIT LOGS — Sin impacto en performance
+// Estrategia: escritura asíncrona vía interceptor.
+// El request no espera a que el log se guarde.
+// Si falla el log, NO falla la request (no-throw).
+// ============================================================
+
+model AuditLog {
+  id            String    @id @default(uuid())
+  userId        String?   @map("user_id")
+  action        String    // "user.login", "bot.created", "payment.succeeded"
+  resourceType  String?   @map("resource_type")
+  resourceId    String?   @map("resource_id")
+  ipAddress     String?   @map("ip_address")
+  userAgent     String?   @map("user_agent")
+  correlationId String?   @map("correlation_id")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  user          User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  // Solo índice por created_at para consultas de auditoría por rango de fecha.
+  // Índice en userId sería útil pero en tablas muy grandes preferimos
+  // particionar por fecha primero.
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
