@@ -1,0 +1,26 @@
+export declare const AppError: {
+    readonly INVALID_CREDENTIALS: "Credenciales inválidas";
+    readonly USER_EMAIL_TAKEN: "El email ya está registrado";
+    readonly USER_NOT_FOUND: "Usuario no encontrado";
+    readonly USER_SUSPENDED: "Cuenta suspendida";
+    readonly TOKEN_EXPIRED: "Token expirado";
+    readonly TOKEN_INVALID: "Token inválido";
+    readonly TOTP_INVALID: "Código 2FA inválido";
+    readonly KYC_ALREADY_APPROVED: "La verificación ya fue aprobada";
+    readonly KYC_PENDING_REVIEW: "La verificación está en revisión";
+    readonly KYC_NOT_APPROVED: "Debes completar la verificación de identidad";
+    readonly BOT_NOT_FOUND: "Bot no encontrado";
+    readonly BOT_NOT_OWNED: "No tienes permisos para modificar este bot";
+    readonly BOT_ALREADY_PUBLISHED: "El bot ya está publicado";
+    readonly BOT_PENDING_REVIEW: "El bot está en revisión";
+    readonly LISTING_NOT_FOUND: "Listing no encontrado";
+    readonly LISTING_NOT_PUBLISHED: "El listing no está disponible";
+    readonly SUBSCRIPTION_ALREADY_ACTIVE: "Ya tienes una suscripción activa";
+    readonly SELLER_STRIPE_NOT_CONFIGURED: "El vendedor no ha configurado pagos";
+    readonly LICENSE_NOT_FOUND: "Licencia no encontrada";
+    readonly LICENSE_EXPIRED: "Licencia expirada";
+    readonly LICENSE_REVOKED: "Licencia revocada";
+    readonly FORBIDDEN: "No tienes permisos para esta acción";
+    readonly RATE_LIMIT_EXCEEDED: "Demasiadas solicitudes. Intenta más tarde.";
+};
+export type AppErrorKey = keyof typeof AppError;

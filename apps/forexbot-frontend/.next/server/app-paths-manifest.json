@@ -1,0 +1,9 @@
+{
+  "/page": "app/page.js",
+  "/marketplace/page": "app/marketplace/page.js",
+  "/dashboard/page": "app/dashboard/page.js",
+  "/auth/login/page": "app/auth/login/page.js",
+  "/dashboard/seller/page": "app/dashboard/seller/page.js",
+  "/dashboard/profile/page": "app/dashboard/profile/page.js",
+  "/dashboard/buyer/page": "app/dashboard/buyer/page.js"
+}

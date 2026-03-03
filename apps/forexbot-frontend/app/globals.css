@@ -1,0 +1,114 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-body: 'Inter', sans-serif;
+  --color-bg: #0a0a0a;
+  --color-surface: #111111;
+  --color-border: #1e1e1e;
+  --color-border-2: #2a2a2a;
+  --color-text: #e8e8e8;
+  --color-muted: #666666;
+  --color-blue: #2196f3;
+  --color-red: #f44336;
+  --color-green: #4caf50;
+  --color-yellow: #ff9800;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+.font-mono { font-family: var(--font-mono); }
+
+/* MT5-style panel */
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.panel-dark {
+  background: #0d0d0d;
+  border: 1px solid var(--color-border);
+}
+
+/* Positive / Negative values */
+.val-pos { color: #2196f3; }
+.val-neg { color: #f44336; }
+.val-neu { color: #e8e8e8; }
+
+/* MT5 table style */
+.mt-table { border-collapse: collapse; width: 100%; }
+.mt-table th {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #555;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: right;
+  white-space: nowrap;
+}
+.mt-table th:first-child { text-align: left; }
+.mt-table td {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 7px 12px;
+  border-bottom: 1px solid #161616;
+  text-align: right;
+  white-space: nowrap;
+}
+.mt-table td:first-child { text-align: left; }
+.mt-table tr:hover td { background: #161616; }
+
+/* Ticker */
+.ticker-bar {
+  background: #0d0d0d;
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+/* Scanline overlay for MT5 feel */
+.scanlines {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #0a0a0a; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; }
+::-webkit-scrollbar-thumb:hover { background: #333; }
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-fade-up { animation: fadeUp 0.5s ease forwards; }
+.animate-ticker { animation: ticker 40s linear infinite; }
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+.delay-400 { animation-delay: 400ms; }
+.opacity-0 { opacity: 0; }

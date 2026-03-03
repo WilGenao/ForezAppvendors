@@ -34,7 +34,10 @@ def test_full_metrics_50_trades():
     assert result.win_rate is not None and 0.6 < result.win_rate < 0.8
     assert result.profit_factor is not None and result.profit_factor > 1.0
 
-def test_metrics_empty_trades():
+def test_metrics_open_trade_has_no_metrics():
+    # Trade sin closed_at = abierto, no genera métricas de P&L
     trades = [Trade(ticket=1, direction=TradeDirection.buy, symbol="EURUSD", lot_size=0.1, open_price=1.1, opened_at=datetime.now())]
     result = calculate_all_metrics("bot-test", trades, initial_balance=10000.0)
-    assert result.total_trades == 0 and result.sharpe_ratio is None
+    assert result.sharpe_ratio is None
+    assert result.win_rate is None
+    assert result.total_profit_usd == 0.0

@@ -18,7 +18,10 @@ export class MarketplaceService {
     private readonly dataSource: DataSource,
   ) {}
 
-  async createBot(sellerId: string, dto: CreateBotDto): Promise<Bot> {
+  async createBot(userId: string, dto: CreateBotDto): Promise<Bot> {
+    const sellerProfile = await this.dataSource.query(`SELECT id FROM seller_profiles WHERE user_id = $1 LIMIT 1`, [userId]);
+    if (!sellerProfile.length) throw new ForbiddenException('You must have a seller profile to create bots');
+    const sellerId = sellerProfile[0].id;
     const slug = this.generateSlug(dto.name);
     const bot = this.botRepo.create({ ...dto, sellerId, slug, status: 'draft' });
     return this.botRepo.save(bot);
@@ -54,7 +57,7 @@ export class MarketplaceService {
     }
 
     const sortMap: Record<string, string> = {
-      rating: 'overall_score DESC NULLS LAST',
+      rating: 'avg_rating DESC NULLS LAST',
       subscribers: 'total_subscribers DESC',
       price_asc: 'price_cents ASC',
       price_desc: 'price_cents DESC',
@@ -105,3 +108,5 @@ export class MarketplaceService {
     return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now().toString(36);
   }
 }
+
+

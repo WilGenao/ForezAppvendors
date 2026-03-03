@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards, Req, Headers, HttpCode, HttpStatus, RawBodyRequest } from '@nestjs/common';
+﻿import { Controller, Post, Body, UseGuards, Req, Headers, HttpCode, HttpStatus } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { Request } from 'express';
@@ -18,14 +18,9 @@ export class PaymentsController {
     return this.paymentsService.createCheckoutSession(user.sub, dto.botListingId, dto.listingType);
   }
 
-  // Webhook: NO autenticar con JWT — Stripe no envía JWT
-  // La autenticación es via firma HMAC del rawBody
   @Post('webhooks/stripe')
   @HttpCode(HttpStatus.OK)
-  stripeWebhook(
-    @Req() req: RawBodyRequest<Request>,
-    @Headers('stripe-signature') signature: string,
-  ) {
-    return this.paymentsService.handleWebhook(req.rawBody!, signature);
+  stripeWebhook(@Req() req: Request & { rawBody: Buffer }, @Headers('stripe-signature') signature: string) {
+    return this.paymentsService.handleWebhook(req.rawBody, signature);
   }
 }

@@ -1,4 +1,4 @@
-import { IsUUID, IsString, IsIn } from 'class-validator';
+﻿import { IsUUID, IsString, IsIn } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateCheckoutDto {

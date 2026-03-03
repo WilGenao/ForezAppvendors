@@ -4,8 +4,18 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+numpy = "*"
+fastapi = "*"
+uvicorn = {extras = ["standard"], version = "*"}
+pydantic = "*"
+pydantic-settings = "*"
+asyncpg = "*"
+python-dotenv = "*"
 
 [dev-packages]
+pytest = "*"
+pytest-asyncio = "*"
+httpx = "*"
 
 [requires]
 python_version = "3.13"
