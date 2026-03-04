@@ -1,22 +1,16 @@
-FROM node:20-alpine AS base
+# apps/api/Dockerfile
+FROM node:20-alpine AS builder
 WORKDIR /app
-RUN apk add --no-cache curl
-
-FROM base AS deps
-COPY package*.json ./
-RUN npm ci --only=production
-
-FROM base AS build
 COPY package*.json ./
 RUN npm ci
 COPY . .
 RUN npm run build
 
-FROM base AS runner
+FROM node:20-alpine AS runner
+WORKDIR /app
 ENV NODE_ENV=production
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
 COPY package*.json ./
+RUN npm ci --omit=dev
+COPY --from=builder /app/dist ./dist
 EXPOSE 3001
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 CMD curl -f http://localhost:3001/api/health || exit 1
 CMD ["node", "dist/main.js"]

@@ -1,112 +1,87 @@
 'use client';
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Activity, TrendingUp, Key, ShoppingBag, Clock, LogOut, Download, RefreshCw, AlertTriangle, CheckCircle2, XCircle, BarChart2 } from 'lucide-react';
+import Link from 'next/link';
+import {
+  Key, ShoppingBag, TrendingUp, AlertTriangle, CheckCircle2,
+  XCircle, Loader2, Copy, Check, RefreshCw, ExternalLink,
+  CreditCard, ChevronRight, Activity,
+} from 'lucide-react';
+import { api } from '@/lib/api';
 
-const SUBSCRIPTIONS = [
-  {
-    id: 'SUB-1042',
-    bot: 'EuroScalper.Pro',
-    seller: 'AlgoTrader Labs',
-    platform: 'MT5',
-    pair: 'EURUSD',
-    plan: 'Monthly',
-    price: 89,
-    status: 'ACTIVE',
-    startDate: '2026-02-02',
-    nextBilling: '2026-04-02',
-    daysLeft: 31,
-    licenseKey: 'LK-A8F2C4E1B9D3F7A2C5E8B1D4F6A9C2E5',
-    accountId: '123456',
-    wr: 68.4,
-    pf: 2.54,
-    dd: -4.2,
-    sharpe: 2.31,
-  },
-  {
-    id: 'SUB-0891',
-    bot: 'TrendHarvester.v3',
-    seller: 'SilverFox Systems',
-    platform: 'BOTH',
-    pair: 'MULTI',
-    plan: 'Yearly',
-    price: 1990,
-    status: 'ACTIVE',
-    startDate: '2026-01-15',
-    nextBilling: '2027-01-15',
-    daysLeft: 319,
-    licenseKey: 'LK-B3D6A9C2E5F8B1D4A7C0E3F6B9D2A5C8',
-    accountId: '789012',
-    wr: 54.9,
-    pf: 3.21,
-    dd: -3.1,
-    sharpe: 3.12,
-  },
-  {
-    id: 'SUB-0734',
-    bot: 'NightScalper.EA',
-    seller: 'LondonFX Group',
-    platform: 'MT4',
-    pair: 'GBPUSD',
-    plan: 'Monthly',
-    price: 79,
-    status: 'EXPIRED',
-    startDate: '2025-12-01',
-    nextBilling: '—',
-    daysLeft: 0,
-    licenseKey: 'LK-C4E7B0D3F6A9C2E5B8D1A4C7E0F3B6D9',
-    accountId: '345678',
-    wr: 66.3,
-    pf: 2.11,
-    dd: -7.2,
-    sharpe: 1.94,
-  },
-];
-
-const LICENSES = [
-  { key: 'LK-A8F2C4E1B9D3F7A2C5E8B1D4F6A9C2E5', bot: 'EuroScalper.Pro', account: '123456', platform: 'MT5', status: 'VALID', lastValidated: '2026-03-02 09:14', activations: 1, maxActivations: 2 },
-  { key: 'LK-B3D6A9C2E5F8B1D4A7C0E3F6B9D2A5C8', bot: 'TrendHarvester.v3', account: '789012', platform: 'MT5', status: 'VALID', lastValidated: '2026-03-02 08:55', activations: 2, maxActivations: 2 },
-  { key: 'LK-C4E7B0D3F6A9C2E5B8D1A4C7E0F3B6D9', bot: 'NightScalper.EA', account: '345678', platform: 'MT4', status: 'EXPIRED', lastValidated: '2026-01-01 12:00', activations: 1, maxActivations: 2 },
-];
+type Subscription = {
+  id: string;
+  status: string;
+  plan: string;
+  price_cents: number;
+  currency: string;
+  current_period_end: string;
+  canceled_at: string | null;
+  bot_id: string;
+  bot_name: string;
+  bot_slug: string;
+  mt_platform: string;
+  avg_rating: number;
+  seller_name: string;
+  license_id: string | null;
+  license_key: string | null;
+  license_status: string | null;
+  license_expires_at: string | null;
+  last_validated_at: string | null;
+  current_activations: number;
+  max_activations: number;
+  sharpe_ratio: number | null;
+  win_rate: number | null;
+  max_drawdown_pct: number | null;
+  profit_factor: number | null;
+};
 
 const STATUS_STYLE: Record<string, string> = {
-  ACTIVE: 'text-mt-green',
-  EXPIRED: 'text-mt-red',
-  PAUSED: 'text-mt-yellow',
-  VALID: 'text-mt-green',
-  INVALID: 'text-mt-red',
+  active: 'text-green-400 bg-green-500/10 border-green-500/30',
+  trialing: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+  past_due: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+  canceled: 'text-gray-500 bg-gray-500/10 border-gray-500/30',
+  unpaid: 'text-red-400 bg-red-500/10 border-red-500/30',
 };
 
-const STATUS_BG: Record<string, string> = {
-  ACTIVE: 'bg-mt-green/10 border-mt-green/30',
-  EXPIRED: 'bg-mt-red/10 border-mt-red/30',
-  PAUSED: 'bg-mt-yellow/10 border-mt-yellow/30',
-  VALID: 'bg-mt-green/10 border-mt-green/30',
-  INVALID: 'bg-mt-red/10 border-mt-red/30',
+const LICENSE_STATUS_STYLE: Record<string, string> = {
+  active: 'text-green-400',
+  expired: 'text-red-400',
+  revoked: 'text-red-500',
+  suspended: 'text-yellow-400',
 };
 
-export default function BuyerDashboard() {
+export default function BuyerDashboardPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('');
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [selected, setSelected] = useState<Subscription | null>(null);
   const [tab, setTab] = useState<'subscriptions' | 'licenses'>('subscriptions');
-  const [selected, setSelected] = useState(SUBSCRIPTIONS[0].id);
+  const [loading, setLoading] = useState(true);
+  const [acting, setActing] = useState(false);
   const [copiedKey, setCopiedKey] = useState('');
+  const [toast, setToast] = useState('');
+  const [portalLoading, setPortalLoading] = useState(false);
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/subscriptions');
+      setSubs(res.data);
+      if (res.data.length > 0 && !selected) setSelected(res.data[0]);
+    } catch {
+      showToast('Failed to load subscriptions');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (!token) { router.push('/auth/login'); return; }
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      setEmail(payload.email || '');
-    } catch {}
-  }, [router]);
-
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    router.push('/auth/login');
-  };
+    load();
+  }, [router, load]);
 
   const copyKey = (key: string) => {
     navigator.clipboard.writeText(key);
@@ -114,284 +89,290 @@ export default function BuyerDashboard() {
     setTimeout(() => setCopiedKey(''), 2000);
   };
 
-  const activeSubs = SUBSCRIPTIONS.filter(s => s.status === 'ACTIVE');
-  const selectedSub = SUBSCRIPTIONS.find(s => s.id === selected) || SUBSCRIPTIONS[0];
+  const handleCancel = async (id: string) => {
+    if (!confirm('Cancel this subscription at the end of the billing period?')) return;
+    setActing(true);
+    try {
+      await api.post(`/subscriptions/${id}/cancel`);
+      showToast('Subscription will cancel at period end');
+      load();
+    } catch (e: unknown) {
+      showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error');
+    } finally { setActing(false); }
+  };
+
+  const handleReactivate = async (id: string) => {
+    setActing(true);
+    try {
+      await api.post(`/subscriptions/${id}/reactivate`);
+      showToast('Subscription reactivated ✓');
+      load();
+    } catch (e: unknown) {
+      showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error');
+    } finally { setActing(false); }
+  };
+
+  const openBillingPortal = async () => {
+    setPortalLoading(true);
+    try {
+      const res = await api.get('/subscriptions/billing-portal');
+      window.location.href = res.data;
+    } catch {
+      showToast('Could not open billing portal');
+    } finally { setPortalLoading(false); }
+  };
+
+  const activeSubs = subs.filter(s => ['active', 'trialing'].includes(s.status));
+  const licenses = subs.filter(s => s.license_key);
 
   return (
-    <div className="min-h-screen bg-mt-bg flex flex-col">
-      {/* Topbar */}
-      <div className="bg-mt-panel2 border-b border-border h-10 flex items-center px-4 justify-between flex-shrink-0">
-        <Link href="/" className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-mt-blue" />
-          <span className="font-mono text-sm font-bold text-white tracking-wider">FOREXBOT</span>
-          <span className="font-mono text-xs text-muted">v2.4</span>
-        </Link>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-[10px] text-muted hidden md:block">{email}</span>
-          <button onClick={handleLogout} className="flex items-center gap-1.5 font-mono text-[10px] text-muted hover:text-white transition-colors">
-            <LogOut className="w-3 h-3" /> LOGOUT
+    <div className="min-h-screen bg-[#0d1117] text-white font-mono">
+      {/* Top bar */}
+      <div className="bg-[#161b22] border-b border-[#30363d] h-10 flex items-center px-4 justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-bold tracking-wider">FOREXBOT</span>
+          <span className="text-[10px] text-gray-500">BUYER DASHBOARD</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <button onClick={openBillingPortal} disabled={portalLoading}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-white border border-[#30363d] hover:border-gray-500 px-3 py-1 rounded transition-colors">
+            {portalLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CreditCard className="w-3 h-3" />}
+            Billing
+          </button>
+          <button onClick={load} className="text-gray-500 hover:text-white p-1">
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           </button>
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div className="hidden lg:flex w-48 border-r border-border flex-col bg-mt-panel2 flex-shrink-0">
-          <div className="px-4 py-2 border-b border-border">
-            <span className="font-mono text-[10px] text-muted tracking-widest uppercase">Buyer Panel</span>
-          </div>
-          <nav className="flex-1 py-2">
-            {[
-              { icon: BarChart2, label: 'Overview', active: true },
-              { icon: ShoppingBag, label: 'Subscriptions', active: false },
-              { icon: Key, label: 'Licenses', active: false },
-              { icon: TrendingUp, label: 'Performance', active: false },
-              { icon: Clock, label: 'History', active: false },
-            ].map(({ icon: Icon, label, active }) => (
-              <button key={label} className={`w-full flex items-center gap-2.5 px-4 py-2 font-mono text-xs transition-colors ${active ? 'bg-mt-blue/10 text-white border-r-2 border-mt-blue' : 'text-muted hover:text-white hover:bg-surface'}`}>
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-              </button>
-            ))}
-          </nav>
-          <div className="border-t border-border p-3">
-            <Link href="/marketplace" className="w-full flex items-center justify-center gap-1.5 bg-mt-blue hover:bg-blue-500 text-white font-mono text-xs py-2 transition-colors">
-              <ShoppingBag className="w-3 h-3" /> BROWSE_BOTS()
-            </Link>
-          </div>
+      {/* Toast */}
+      {toast && (
+        <div className="fixed top-14 right-4 z-50 bg-[#161b22] border border-[#30363d] px-4 py-2.5 rounded text-xs text-white shadow-lg">{toast}</div>
+      )}
+
+      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            { label: 'Active Subs', value: activeSubs.length, icon: ShoppingBag, color: 'text-green-400' },
+            { label: 'Total Bots', value: subs.length, icon: TrendingUp, color: 'text-blue-400' },
+            { label: 'Licenses', value: licenses.length, icon: Key, color: 'text-purple-400' },
+          ].map(s => (
+            <div key={s.label} className="bg-[#161b22] border border-[#30363d] rounded p-4">
+              <div className="flex items-center gap-2 mb-2">
+                <s.icon className={`w-4 h-4 ${s.color}`} />
+                <span className="text-[10px] text-gray-500 uppercase tracking-widest">{s.label}</span>
+              </div>
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+            </div>
+          ))}
         </div>
 
-        {/* Main */}
-        <div className="flex-1 flex flex-col overflow-auto">
-          {/* Header */}
-          <div className="border-b border-border px-6 py-3 bg-mt-panel2 flex items-center justify-between flex-shrink-0">
-            <div>
-              <span className="font-mono text-[10px] text-muted uppercase tracking-widest">Buyer Dashboard</span>
-              <div className="font-mono text-xs text-white mt-0.5">My EAs — March 2026</div>
-            </div>
-            <span className="font-mono text-[10px] text-mt-green">● SESSION ACTIVE</span>
+        {/* Tabs */}
+        <div className="flex gap-0 border-b border-[#30363d]">
+          {(['subscriptions', 'licenses'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wider ${tab === t ? 'border-blue-400 text-white' : 'border-transparent text-gray-500 hover:text-white'}`}>
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {loading && (
+          <div className="flex items-center justify-center py-16 text-gray-500">
+            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading...
           </div>
+        )}
 
-          <div className="p-6 space-y-4">
-            {/* KPI row */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              {[
-                { label: 'ACTIVE_SUBS', value: activeSubs.length, sub: `${SUBSCRIPTIONS.length} total`, icon: ShoppingBag, pos: null },
-                { label: 'LICENSES_VALID', value: LICENSES.filter(l => l.status === 'VALID').length, sub: `${LICENSES.length} total`, icon: Key, pos: null },
-                { label: 'MONTHLY_SPEND', value: `$${activeSubs.filter(s => s.plan === 'Monthly').reduce((a, s) => a + s.price, 0)}`, sub: 'per month', icon: TrendingUp, pos: null },
-                { label: 'NEXT_BILLING', value: '2 Apr', sub: '$89 due', icon: Clock, pos: null },
-              ].map(({ label, value, sub, icon: Icon }) => (
-                <div key={label} className="panel p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-[9px] text-muted tracking-wider">{label}</span>
-                    <Icon className="w-3.5 h-3.5 text-muted" />
+        {/* Subscriptions tab */}
+        {!loading && tab === 'subscriptions' && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* List */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+              {subs.length === 0 && (
+                <div className="flex flex-col items-center py-12 text-gray-600">
+                  <ShoppingBag className="w-8 h-8 mb-2" />
+                  <p className="text-sm">No subscriptions yet.</p>
+                  <Link href="/marketplace" className="text-blue-400 text-xs mt-2 hover:underline">Browse bots →</Link>
+                </div>
+              )}
+              {subs.map(sub => (
+                <div key={sub.id} onClick={() => setSelected(sub)}
+                  className={`flex items-center gap-3 px-4 py-3 border-b border-[#30363d] cursor-pointer transition-colors ${selected?.id === sub.id ? 'bg-[#21262d]' : 'hover:bg-[#1c2128]'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-sm font-bold truncate">{sub.bot_name}</p>
+                    <p className="text-gray-500 text-xs">{sub.seller_name} · {sub.plan.replace('subscription_', '')}</p>
                   </div>
-                  <div className="font-mono text-xl font-bold text-white">{value}</div>
-                  <div className="font-mono text-[10px] text-muted mt-1">{sub}</div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${STATUS_STYLE[sub.status]}`}>
+                      {sub.status.toUpperCase()}
+                    </span>
+                    <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
+                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Tabs */}
-            <div className="border-b border-border flex gap-0">
-              {(['subscriptions', 'licenses'] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  className={`font-mono text-xs px-5 py-2 border-b-2 transition-colors uppercase tracking-wider ${tab === t ? 'border-mt-blue text-white' : 'border-transparent text-muted hover:text-white'}`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-
-            {tab === 'subscriptions' && (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                {/* Sub list */}
-                <div className="panel">
-                  <div className="px-4 py-2 border-b border-border">
-                    <span className="font-mono text-[10px] text-muted uppercase tracking-widest">Subscriptions</span>
-                  </div>
-                  <div className="divide-y divide-[#161616]">
-                    {SUBSCRIPTIONS.map((sub) => (
-                      <button
-                        key={sub.id}
-                        onClick={() => setSelected(sub.id)}
-                        className={`w-full text-left px-4 py-3 hover:bg-surface transition-colors ${selected === sub.id ? 'bg-mt-blue/5 border-l-2 border-mt-blue' : ''}`}
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-mono text-xs text-white font-semibold">{sub.bot}</span>
-                          <span className={`font-mono text-[9px] px-1.5 py-0.5 border ${STATUS_BG[sub.status]} ${STATUS_STYLE[sub.status]}`}>
-                            {sub.status}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="font-mono text-[10px] text-muted">{sub.plan}</span>
-                          <span className="font-mono text-[10px] text-muted">·</span>
-                          <span className="font-mono text-[10px] text-muted">${sub.price}/mo</span>
-                          {sub.daysLeft > 0 && (
-                            <>
-                              <span className="font-mono text-[10px] text-muted">·</span>
-                              <span className="font-mono text-[10px] text-mt-yellow">{sub.daysLeft}d left</span>
-                            </>
-                          )}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Sub detail */}
-                <div className="lg:col-span-2 panel">
-                  <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-                    <span className="font-mono text-[10px] text-muted uppercase tracking-widest">{selectedSub.bot} — Detail</span>
-                    <span className={`font-mono text-[10px] ${STATUS_STYLE[selectedSub.status]}`}>{selectedSub.status}</span>
+            {/* Detail */}
+            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+              {!selected ? (
+                <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Select a subscription</div>
+              ) : (
+                <>
+                  <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
+                    <span className="text-[10px] text-gray-500 uppercase tracking-widest">{selected.bot_name}</span>
+                    <Link href={`/marketplace/${selected.bot_slug}`}
+                      className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
+                      <ExternalLink className="w-3 h-3" /> View Bot
+                    </Link>
                   </div>
                   <div className="p-4 space-y-4">
-                    {/* Info row */}
-                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                    {/* Info grid */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
                       {[
-                        { label: 'SELLER', value: selectedSub.seller },
-                        { label: 'PLATFORM', value: selectedSub.platform },
-                        { label: 'SYMBOL', value: selectedSub.pair },
-                        { label: 'PLAN', value: selectedSub.plan },
-                        { label: 'PRICE', value: `$${selectedSub.price}/mo` },
-                        { label: 'NEXT_BILLING', value: selectedSub.nextBilling },
-                      ].map((i) => (
-                        <div key={i.label} className="panel-dark p-2">
-                          <div className="font-mono text-[9px] text-muted mb-0.5">{i.label}</div>
-                          <div className="font-mono text-xs text-white">{i.value}</div>
+                        { label: 'Plan', value: selected.plan.replace('subscription_', '').toUpperCase() },
+                        { label: 'Price', value: `$${(selected.price_cents / 100).toFixed(2)}/${selected.plan.includes('yearly') ? 'yr' : 'mo'}` },
+                        { label: 'Platform', value: selected.mt_platform },
+                        { label: 'Seller', value: selected.seller_name },
+                        { label: 'Next Billing', value: selected.canceled_at ? 'Cancels at period end' : selected.current_period_end ? new Date(selected.current_period_end).toLocaleDateString() : '—' },
+                        { label: 'Status', value: selected.status.toUpperCase() },
+                      ].map(item => (
+                        <div key={item.label}>
+                          <p className="text-gray-500">{item.label}</p>
+                          <p className="text-white font-medium">{item.value}</p>
                         </div>
                       ))}
                     </div>
 
-                    {/* Performance */}
-                    {selectedSub.status === 'ACTIVE' && (
-                      <div>
-                        <div className="font-mono text-[10px] text-muted uppercase tracking-widest mb-2">// Live Performance</div>
-                        <div className="grid grid-cols-4 gap-2">
-                          {[
-                            { label: 'WIN_RATE', value: `${selectedSub.wr}%`, pos: true },
-                            { label: 'PROFIT_FACTOR', value: selectedSub.pf, pos: true },
-                            { label: 'MAX_DD', value: `${selectedSub.dd}%`, pos: false },
-                            { label: 'SHARPE', value: selectedSub.sharpe, pos: true },
-                          ].map((m) => (
-                            <div key={m.label} className="panel-dark p-3 text-center">
-                              <div className="font-mono text-[9px] text-muted mb-1">{m.label}</div>
-                              <div className={`font-mono text-sm font-bold ${m.pos ? 'val-pos' : 'val-neg'}`}>{m.value}</div>
-                            </div>
-                          ))}
-                        </div>
+                    {/* Performance stats */}
+                    {selected.sharpe_ratio != null && (
+                      <div className="grid grid-cols-4 gap-2">
+                        {[
+                          { label: 'SHARPE', value: selected.sharpe_ratio?.toFixed(2) ?? '—', color: 'text-blue-400' },
+                          { label: 'WIN RATE', value: selected.win_rate != null ? `${(selected.win_rate * 100).toFixed(1)}%` : '—', color: 'text-green-400' },
+                          { label: 'MAX DD', value: selected.max_drawdown_pct != null ? `${selected.max_drawdown_pct.toFixed(1)}%` : '—', color: 'text-red-400' },
+                          { label: 'PROFIT F.', value: selected.profit_factor?.toFixed(2) ?? '—', color: 'text-purple-400' },
+                        ].map(stat => (
+                          <div key={stat.label} className="bg-[#0d1117] border border-[#30363d] rounded p-2 text-center">
+                            <p className="text-[9px] text-gray-500 mb-1">{stat.label}</p>
+                            <p className={`text-sm font-bold ${stat.color}`}>{stat.value}</p>
+                          </div>
+                        ))}
                       </div>
                     )}
 
                     {/* License key */}
-                    <div>
-                      <div className="font-mono text-[10px] text-muted uppercase tracking-widest mb-2">// License Key</div>
-                      <div className="flex items-center gap-2 p-3 bg-mt-bg border border-border">
-                        <Key className="w-3.5 h-3.5 text-muted flex-shrink-0" />
-                        <span className="font-mono text-[10px] text-white flex-1 truncate">{selectedSub.licenseKey}</span>
-                        <button
-                          onClick={() => copyKey(selectedSub.licenseKey)}
-                          className={`font-mono text-[10px] px-2 py-1 transition-colors flex-shrink-0 ${copiedKey === selectedSub.licenseKey ? 'bg-mt-green/10 text-mt-green border border-mt-green/30' : 'bg-surface border border-border text-muted hover:text-white'}`}
-                        >
-                          {copiedKey === selectedSub.licenseKey ? '[✓] COPIED' : 'COPY'}
-                        </button>
+                    {selected.license_key && (
+                      <div className="bg-[#0d1117] border border-[#30363d] rounded p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-[10px] text-gray-500 uppercase tracking-widest">License Key</span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] font-bold ${LICENSE_STATUS_STYLE[selected.license_status ?? 'active']}`}>
+                              {selected.license_status?.toUpperCase()}
+                            </span>
+                            <span className="text-[10px] text-gray-600">
+                              {selected.current_activations}/{selected.max_activations} activations
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <code className="flex-1 text-[11px] text-green-400 bg-[#161b22] px-2 py-1.5 rounded truncate">
+                            {selected.license_key}
+                          </code>
+                          <button onClick={() => copyKey(selected.license_key!)}
+                            className="p-1.5 bg-[#21262d] hover:bg-[#30363d] rounded transition-colors shrink-0">
+                            {copiedKey === selected.license_key
+                              ? <Check className="w-3.5 h-3.5 text-green-400" />
+                              : <Copy className="w-3.5 h-3.5 text-gray-400" />}
+                          </button>
+                        </div>
+                        {selected.last_validated_at && (
+                          <p className="text-[10px] text-gray-600 mt-1.5">
+                            Last validated: {new Date(selected.last_validated_at).toLocaleString()}
+                          </p>
+                        )}
                       </div>
-                      <div className="font-mono text-[10px] text-muted mt-1">MT Account: {selectedSub.accountId} · {selectedSub.platform}</div>
-                    </div>
+                    )}
 
                     {/* Actions */}
-                    <div className="flex gap-2 pt-2 border-t border-border">
-                      <button className="flex items-center gap-1.5 font-mono text-xs border border-border text-muted hover:text-white px-3 py-2 transition-colors">
-                        <Download className="w-3 h-3" /> DOWNLOAD_EA()
-                      </button>
-                      <button className="flex items-center gap-1.5 font-mono text-xs border border-border text-muted hover:text-white px-3 py-2 transition-colors">
-                        <RefreshCw className="w-3 h-3" /> RENEW()
-                      </button>
-                      {selectedSub.status === 'ACTIVE' && (
-                        <button className="flex items-center gap-1.5 font-mono text-xs border border-mt-red/30 text-mt-red hover:bg-mt-red/10 px-3 py-2 transition-colors ml-auto">
-                          <XCircle className="w-3 h-3" /> CANCEL()
+                    <div className="flex gap-2 pt-1">
+                      {selected.canceled_at && selected.status !== 'canceled' ? (
+                        <button onClick={() => handleReactivate(selected.id)} disabled={acting}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 rounded text-xs font-bold transition-colors">
+                          {acting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                          Reactivate
                         </button>
-                      )}
+                      ) : selected.status === 'active' || selected.status === 'trialing' ? (
+                        <button onClick={() => handleCancel(selected.id)} disabled={acting}
+                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#21262d] hover:bg-red-900/40 border border-[#30363d] hover:border-red-500/40 disabled:opacity-50 rounded text-xs font-bold text-gray-400 hover:text-red-400 transition-colors">
+                          {acting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
+                          Cancel at Period End
+                        </button>
+                      ) : null}
                     </div>
                   </div>
-                </div>
-              </div>
-            )}
-
-            {tab === 'licenses' && (
-              <div className="panel">
-                <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-                  <span className="font-mono text-[10px] text-muted uppercase tracking-widest">License Manager</span>
-                  <span className="font-mono text-[10px] text-muted">{LICENSES.length} licenses</span>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="mt-table">
-                    <thead>
-                      <tr>
-                        <th className="text-left">License Key</th>
-                        <th className="text-left">EA</th>
-                        <th className="text-center">Platform</th>
-                        <th className="text-center">MT Account</th>
-                        <th className="text-center">Activations</th>
-                        <th className="text-center">Status</th>
-                        <th className="text-right">Last Validated</th>
-                        <th className="text-center">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {LICENSES.map((lic) => (
-                        <tr key={lic.key}>
-                          <td className="text-left">
-                            <span className="font-mono text-[10px] text-muted">{lic.key.substring(0, 18)}...</span>
-                          </td>
-                          <td className="text-left text-white">{lic.bot}</td>
-                          <td className="text-center">
-                            <span className={`font-mono text-[10px] ${lic.platform === 'MT5' ? 'text-mt-blue' : 'text-mt-yellow'}`}>{lic.platform}</span>
-                          </td>
-                          <td className="text-center text-muted">{lic.account}</td>
-                          <td className="text-center">
-                            <span className={`font-mono text-xs ${lic.activations >= lic.maxActivations ? 'text-mt-yellow' : 'val-pos'}`}>
-                              {lic.activations}/{lic.maxActivations}
-                            </span>
-                          </td>
-                          <td className="text-center">
-                            <span className={`font-mono text-[10px] flex items-center justify-center gap-1 ${STATUS_STYLE[lic.status]}`}>
-                              {lic.status === 'VALID' ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                              {lic.status}
-                            </span>
-                          </td>
-                          <td className="text-right text-muted">{lic.lastValidated}</td>
-                          <td className="text-center">
-                            <button
-                              onClick={() => copyKey(lic.key)}
-                              className={`font-mono text-[10px] px-2 py-1 transition-colors ${copiedKey === lic.key ? 'bg-mt-green/10 text-mt-green border border-mt-green/30' : 'bg-surface border border-border text-muted hover:text-white'}`}
-                            >
-                              {copiedKey === lic.key ? '[✓]' : 'COPY'}
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <div className="px-4 py-2 border-t border-border">
-                  <p className="font-mono text-[10px] text-muted">// Paste license key into your EA inputs in MetaTrader to activate. Max 2 simultaneous activations per license.</p>
-                </div>
-              </div>
-            )}
+                </>
+              )}
+            </div>
           </div>
-        </div>
-      </div>
+        )}
 
-      {/* Status bar */}
-      <div className="border-t border-border px-4 py-1.5 bg-mt-panel2 flex items-center justify-between flex-shrink-0">
-        <span className="font-mono text-[10px] text-muted">Buyer Dashboard · {email}</span>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-[10px] text-muted">ACTIVE_LICENSES: {LICENSES.filter(l => l.status === 'VALID').length}</span>
-          <span className="font-mono text-[10px] val-pos">● CONNECTED</span>
-        </div>
+        {/* Licenses tab */}
+        {!loading && tab === 'licenses' && (
+          <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-[#30363d]">
+                    {['Bot', 'License Key', 'Platform', 'Status', 'Activations', 'Last Validated'].map(h => (
+                      <th key={h} className="px-3 py-2.5 text-left text-[10px] text-gray-500 uppercase tracking-wider font-medium">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {licenses.length === 0 && (
+                    <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-600">No licenses yet.</td></tr>
+                  )}
+                  {licenses.map(sub => (
+                    <tr key={sub.license_id} className="border-b border-[#30363d] hover:bg-[#1c2128] transition-colors">
+                      <td className="px-3 py-3">
+                        <p className="text-white font-bold">{sub.bot_name}</p>
+                        <p className="text-gray-500 text-[10px]">{sub.seller_name}</p>
+                      </td>
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <code className="text-green-400 text-[11px]">{sub.license_key?.slice(0, 20)}...</code>
+                          <button onClick={() => copyKey(sub.license_key!)}
+                            className="p-1 hover:bg-[#30363d] rounded transition-colors">
+                            {copiedKey === sub.license_key
+                              ? <Check className="w-3 h-3 text-green-400" />
+                              : <Copy className="w-3 h-3 text-gray-500" />}
+                          </button>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[10px] font-bold">{sub.mt_platform}</span>
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className={`font-bold ${LICENSE_STATUS_STYLE[sub.license_status ?? 'active']}`}>
+                          {sub.license_status?.toUpperCase() ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-3 text-white">
+                        {sub.current_activations}/{sub.max_activations}
+                      </td>
+                      <td className="px-3 py-3 text-gray-500">
+                        {sub.last_validated_at ? new Date(sub.last_validated_at).toLocaleDateString() : 'Never'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,21 +1,4 @@
-/**
- * FIX: Token storage moved from localStorage to httpOnly cookies.
- *
- * WHY: localStorage is accessible via JavaScript and vulnerable to XSS attacks.
- * httpOnly cookies cannot be read by JavaScript — only sent automatically by the browser.
- *
- * REQUIRED BACKEND CHANGE: The /auth/login and /auth/refresh endpoints must set
- * the tokens as cookies instead of returning them in the JSON body.
- * Use cookie-parser on NestJS side and set:
- *   res.cookie('access_token', token, { httpOnly: true, secure: true, sameSite: 'strict' })
- *   res.cookie('refresh_token', token, { httpOnly: true, secure: true, sameSite: 'strict', path: '/api/v1/auth/refresh' })
- *
- * In the meantime, this file handles the transition gracefully:
- * - New logins use cookies (withCredentials: true)
- * - The interceptor no longer manually attaches Authorization headers
- *   (the browser sends the cookie automatically)
- */
-
+// apps/forexbot-frontend/lib/api.ts
 import axios, { AxiosError } from 'axios';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
@@ -23,113 +6,122 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1
 export const api = axios.create({
   baseURL: API_URL,
   headers: { 'Content-Type': 'application/json' },
-  // FIX: withCredentials: true is required for cookies to be sent cross-origin
-  withCredentials: true,
 });
 
-// FIX: Removed manual Authorization header injection from localStorage.
-// The httpOnly cookie is sent automatically by the browser.
-// No request interceptor needed for auth headers.
+// Attach token on every request
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const token = localStorage.getItem('accessToken');
+    if (token) config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
-// Auto-refresh on 401 using the refresh token cookie (also httpOnly)
-let isRefreshing = false;
-let failedQueue: Array<{ resolve: (v: unknown) => void; reject: (e: unknown) => void }> = [];
-
-function processQueue(error: unknown) {
-  failedQueue.forEach(({ resolve, reject }) => {
-    if (error) reject(error);
-    else resolve(null);
-  });
-  failedQueue = [];
-}
-
+// Auto-refresh on 401
 api.interceptors.response.use(
   (res) => res,
   async (error: AxiosError) => {
-    const originalRequest = error.config as typeof error.config & { _retry?: boolean };
-
-    if (error.response?.status === 401 && !originalRequest._retry) {
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          failedQueue.push({ resolve, reject });
-        })
-          .then(() => api.request(originalRequest))
-          .catch((err) => Promise.reject(err));
-      }
-
-      originalRequest._retry = true;
-      isRefreshing = true;
-
-      try {
-        // The refresh token is in the httpOnly cookie — no body needed.
-        // The server reads it from the cookie and sets a new access_token cookie.
-        await axios.post(`${API_URL}/auth/refresh`, {}, { withCredentials: true });
-        processQueue(null);
-        return api.request(originalRequest);
-      } catch (refreshError) {
-        processQueue(refreshError);
-        // Redirect to login — all auth state is in cookies, nothing to clear client-side
-        if (typeof window !== 'undefined') {
+    if (error.response?.status === 401 && typeof window !== 'undefined') {
+      const refresh = localStorage.getItem('refreshToken');
+      if (refresh) {
+        try {
+          const { data } = await axios.post(`${API_URL}/auth/refresh`, { refreshToken: refresh });
+          localStorage.setItem('accessToken', data.accessToken);
+          if (error.config) {
+            error.config.headers.Authorization = `Bearer ${data.accessToken}`;
+            return api.request(error.config);
+          }
+        } catch {
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
           window.location.href = '/auth/login';
         }
-        return Promise.reject(refreshError);
-      } finally {
-        isRefreshing = false;
       }
     }
-
     return Promise.reject(error);
-  },
+  }
 );
 
-// Auth
+// ─── Auth ────────────────────────────────────────────────────────────────────
 export const authApi = {
-  register: (email: string, password: string) =>
-    api.post('/auth/register', { email, password }),
-  login: (email: string, password: string) =>
-    api.post('/auth/login', { email, password }),
-  logout: () =>
-    api.post('/auth/logout'),
+  register: (email: string, password: string) => api.post('/auth/register', { email, password }),
+  login: (email: string, password: string) => api.post('/auth/login', { email, password }),
+  refresh: (refreshToken: string) => api.post('/auth/refresh', { refreshToken }),
+  logout: (refreshToken: string) => api.post('/auth/logout', { refreshToken }),
+  forgotPassword: (email: string) => api.post('/auth/forgot-password', { email }),
+  resetPassword: (token: string, newPassword: string) => api.post('/auth/reset-password', { token, newPassword }),
+  verifyEmail: (token: string) => api.get(`/auth/verify-email?token=${token}`),
+  resendVerification: (email: string) => api.post('/auth/resend-verification', { email }),
 };
 
-// Marketplace
+// ─── Marketplace ─────────────────────────────────────────────────────────────
 export const marketplaceApi = {
   listBots: (params?: {
-    search?: string;
-    mtPlatform?: string;
-    page?: number;
-    limit?: number;
-    sortBy?: string;
+    search?: string; mtPlatform?: string; page?: number;
+    limit?: number; sortBy?: string; categoryId?: string;
   }) => api.get('/marketplace/bots', { params }),
   getBot: (slug: string) => api.get(`/marketplace/bots/${slug}`),
+  createBot: (data: {
+    name: string; shortDescription: string; description?: string;
+    mtPlatform: string; currencyPairs: string[]; timeframes: string[]; riskLevel?: number;
+  }) => api.post('/marketplace/bots', data),
 };
 
-// KYC
+// ─── KYC ─────────────────────────────────────────────────────────────────────
 export const kycApi = {
   getStatus: () => api.get('/kyc/status'),
   submit: (data: {
-    documentType: string;
-    documentFrontUrl: string;
-    documentBackUrl?: string;
-    selfieUrl: string;
+    documentType: string; documentFrontUrl: string;
+    documentBackUrl?: string; selfieUrl: string;
   }) => api.post('/kyc/submit', data),
 };
 
-// Licensing
+// ─── Subscriptions ───────────────────────────────────────────────────────────
+export const subscriptionsApi = {
+  getAll: () => api.get('/subscriptions'),
+  cancel: (id: string) => api.post(`/subscriptions/${id}/cancel`),
+  reactivate: (id: string) => api.post(`/subscriptions/${id}/reactivate`),
+  getBillingPortal: () => api.get('/subscriptions/billing-portal'),
+};
+
+// ─── Payments ────────────────────────────────────────────────────────────────
+export const paymentsApi = {
+  createCheckout: (botListingId: string, listingType: string) =>
+    api.post('/payments/checkout', { botListingId, listingType }),
+};
+
+// ─── Reviews ─────────────────────────────────────────────────────────────────
+export const reviewsApi = {
+  getForBot: (botId: string, page = 1, limit = 10) =>
+    api.get(`/reviews/bot/${botId}?page=${page}&limit=${limit}`),
+  create: (data: { botId: string; rating: number; title?: string; body: string }) =>
+    api.post('/reviews', data),
+};
+
+// ─── Licensing ───────────────────────────────────────────────────────────────
 export const licensingApi = {
   validate: (data: { licenseKey: string; mtPlatform: string; mtAccountId: string }) =>
     api.post('/licensing/validate', data),
 };
 
-// Reviews
-export const reviewsApi = {
-  getForBot: (botId: string) => api.get(`/reviews/bot/${botId}`),
-  create: (data: { botId: string; rating: number; title?: string; body: string }) =>
-    api.post('/reviews', data),
+// ─── Seller ──────────────────────────────────────────────────────────────────
+export const sellerApi = {
+  getDashboard: () => api.get('/seller/dashboard'),
+  getRecentSales: (page = 1, limit = 20) => api.get(`/seller/sales?page=${page}&limit=${limit}`),
+  getStripeOnboardingUrl: () => api.post('/seller/stripe/onboarding'),
 };
 
-// Payments
-export const paymentsApi = {
-  createCheckout: (data: { botListingId: string; listingType: string }) =>
-    api.post('/payments/checkout', data),
+// ─── Admin ───────────────────────────────────────────────────────────────────
+export const adminApi = {
+  getStats: () => api.get('/admin/stats'),
+  getKycQueue: (page = 1) => api.get(`/admin/kyc?page=${page}`),
+  approveKyc: (id: string) => api.post(`/admin/kyc/${id}/approve`),
+  rejectKyc: (id: string, reason: string) => api.post(`/admin/kyc/${id}/reject`, { reason }),
+  getBots: (status?: string, page = 1) => api.get(`/admin/bots?status=${status ?? ''}&page=${page}`),
+  approveBot: (id: string) => api.patch(`/admin/bots/${id}/approve`),
+  suspendBot: (id: string, reason?: string) => api.patch(`/admin/bots/${id}/suspend`, { reason }),
+  rejectBot: (id: string, reason?: string) => api.patch(`/admin/bots/${id}/reject`, { reason }),
+  getUsers: (search?: string, page = 1) => api.get(`/admin/users?search=${search ?? ''}&page=${page}`),
+  suspendUser: (id: string) => api.patch(`/admin/users/${id}/suspend`),
+  activateUser: (id: string) => api.patch(`/admin/users/${id}/activate`),
 };
