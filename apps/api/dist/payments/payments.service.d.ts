@@ -8,10 +8,7 @@ export declare class PaymentsService {
     private readonly stripe;
     constructor(paymentRepo: Repository<Payment>, config: ConfigService);
     createCheckoutSession(userId: string, botListingId: string, listingType: string): Promise<{
-        message: string;
-        userId: string;
-        botListingId: string;
-        listingType: string;
+        url: string;
     }>;
     handleWebhook(rawBody: Buffer, signature: string): Promise<void>;
 }

@@ -18,6 +18,9 @@ import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { ApiKeyPayload } from '../common/decorators/api-key-user.decorator';
 
+// FIX: Refresh tokens are now stored as hashes in Redis with a TTL.
+// This prevents token reuse after logout and ensures invalidation works.
+// Key format: refresh_token:{userId}:{tokenId}  -> hash
 const REFRESH_TOKEN_PREFIX = 'refresh_token';
 
 @Injectable()
@@ -43,16 +46,23 @@ export class AuthService {
   async login(dto: LoginDto, ip: string) {
     const user = await this.usersService.findByEmail(dto.email);
     if (!user) throw new UnauthorizedException('Invalid credentials');
+
     const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
     if (!passwordValid) throw new UnauthorizedException('Invalid credentials');
+
     if (user.status !== 'active') throw new UnauthorizedException(`Account is ${user.status}`);
+
     if (user.totpEnabled) {
       if (!dto.totpCode) throw new UnauthorizedException('2FA code required');
       const valid = speakeasy.totp.verify({
-        secret: user.totpSecret, encoding: 'base32', token: dto.totpCode, window: 1,
+        secret: user.totpSecret,
+        encoding: 'base32',
+        token: dto.totpCode,
+        window: 1,
       });
       if (!valid) throw new UnauthorizedException('Invalid 2FA code');
     }
+
     await this.usersService.updateLastLogin(user.id, ip);
     return this.generateTokenPair(user.id, user.email, []);
   }
@@ -68,22 +78,35 @@ export class AuthService {
     const user = await this.usersService.findById(userId);
     if (!user.totpSecret) throw new BadRequestException('2FA setup not initiated');
     const valid = speakeasy.totp.verify({
-      secret: user.totpSecret, encoding: 'base32', token: totpCode, window: 1,
+      secret: user.totpSecret,
+      encoding: 'base32',
+      token: totpCode,
+      window: 1,
     });
     if (!valid) throw new BadRequestException('Invalid TOTP code');
     await this.usersService.enableTotp(userId);
     return { message: '2FA enabled successfully' };
   }
 
-  // FIX: Valida hash del token contra Redis usando jti único por emisión
+  // FIX: Proper refresh token validation.
+  // 1. Decode the incoming token to get userId + tokenId from payload.
+  // 2. Look up the stored hash in Redis using the tokenId.
+  // 3. Compare the incoming token hash against the stored hash.
+  // 4. Rotate: delete old token, issue new pair.
   async refreshTokens(userId: string, incomingRefreshToken: string) {
+    // Decode without verifying signature first to extract the tokenId
     let payload: { sub: string; jti: string } | null = null;
     try {
       payload = this.jwtService.decode(incomingRefreshToken) as { sub: string; jti: string };
     } catch {
       throw new UnauthorizedException('Invalid refresh token');
     }
-    if (!payload?.jti || payload.sub !== userId) throw new UnauthorizedException('Invalid refresh token');
+
+    if (!payload?.jti || payload.sub !== userId) {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    // Verify the token signature using the refresh secret
     try {
       await this.jwtService.verifyAsync(incomingRefreshToken, {
         secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
@@ -91,26 +114,40 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Refresh token expired or invalid');
     }
+
+    // Check against stored hash in Redis
     const redisKey = `${REFRESH_TOKEN_PREFIX}:${userId}:${payload.jti}`;
     const storedHash = await this.redis.get(redisKey);
-    if (!storedHash) throw new UnauthorizedException('Refresh token has been revoked or expired');
+    if (!storedHash) {
+      throw new UnauthorizedException('Refresh token has been revoked or expired');
+    }
+
     const incomingHash = createHash('sha256').update(incomingRefreshToken).digest('hex');
     if (incomingHash !== storedHash) {
+      // Possible token theft — invalidate all refresh tokens for this user
       this.logger.warn({ msg: 'Refresh token hash mismatch — possible token theft', userId });
       await this.revokeAllRefreshTokens(userId);
       throw new UnauthorizedException('Invalid refresh token');
     }
+
+    // Rotate: remove old token
     await this.redis.del(redisKey);
+
     const user = await this.usersService.findById(userId);
     if (!user) throw new UnauthorizedException();
+
     return this.generateTokenPair(user.id, user.email, []);
   }
 
   async logout(userId: string, refreshToken: string): Promise<void> {
     try {
       const payload = this.jwtService.decode(refreshToken) as { jti?: string };
-      if (payload?.jti) await this.redis.del(`${REFRESH_TOKEN_PREFIX}:${userId}:${payload.jti}`);
-    } catch { /* silent */ }
+      if (payload?.jti) {
+        await this.redis.del(`${REFRESH_TOKEN_PREFIX}:${userId}:${payload.jti}`);
+      }
+    } catch {
+      // Silent — token may already be invalid
+    }
   }
 
   async validateApiKey(rawKey: string): Promise<ApiKeyPayload | null> {
@@ -124,32 +161,49 @@ export class AuthService {
     do {
       const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
       cursor = nextCursor;
-      if (keys.length > 0) await this.redis.del(...keys);
+      if (keys.length > 0) {
+        await this.redis.del(...keys);
+      }
     } while (cursor !== '0');
   }
 
   private async generateTokenPair(userId: string, email: string, roles: string[]) {
+    // FIX: Each refresh token gets a unique jti (JWT ID) stored in Redis.
+    // This allows per-token revocation without invalidating all sessions.
     const tokenId = randomBytes(32).toString('hex');
     const payload = { sub: userId, email, roles };
+
     const refreshExpiresIn = this.config.get('JWT_REFRESH_EXPIRES_IN', '7d');
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(payload),
-      this.jwtService.signAsync({ ...payload, jti: tokenId }, {
-        secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-        expiresIn: refreshExpiresIn,
-      }),
+      this.jwtService.signAsync(
+        { ...payload, jti: tokenId },
+        {
+          secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+          expiresIn: refreshExpiresIn,
+        },
+      ),
     ]);
+
+    // Store hash of refresh token in Redis with matching TTL
     const ttlSeconds = this.parseDurationToSeconds(refreshExpiresIn);
     const refreshHash = createHash('sha256').update(refreshToken).digest('hex');
-    await this.redis.setex(`${REFRESH_TOKEN_PREFIX}:${userId}:${tokenId}`, ttlSeconds, refreshHash);
+    await this.redis.setex(
+      `${REFRESH_TOKEN_PREFIX}:${userId}:${tokenId}`,
+      ttlSeconds,
+      refreshHash,
+    );
+
     return { accessToken, refreshToken, tokenType: 'Bearer' };
   }
 
   private parseDurationToSeconds(duration: string): number {
     const match = duration.match(/^(\d+)([smhd])$/);
-    if (!match) return 7 * 24 * 3600;
+    if (!match) return 7 * 24 * 3600; // default 7d
     const value = parseInt(match[1], 10);
+    const unit = match[2];
     const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
-    return value * multipliers[match[2]];
+    return value * multipliers[unit];
   }
 }

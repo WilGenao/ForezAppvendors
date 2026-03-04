@@ -1,20 +1,28 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-const core_1 = require("@nestjs/core");
-const app_module_1 = require("./app.module");
 const common_1 = require("@nestjs/common");
+const config_1 = require("@nestjs/config");
+const core_1 = require("@nestjs/core");
 const swagger_1 = require("@nestjs/swagger");
+const compression = require("compression");
+const helmet_1 = require("helmet");
+const app_module_1 = require("./app.module");
 const http_exception_filter_1 = require("./common/filters/http-exception.filter");
 const logging_interceptor_1 = require("./common/interceptors/logging.interceptor");
-const config_1 = require("@nestjs/config");
-const helmet_1 = require("helmet");
-const compression = require("compression");
 async function bootstrap() {
-    const app = await core_1.NestFactory.create(app_module_1.AppModule, { logger: ['error', 'warn', 'log'] });
+    const app = await core_1.NestFactory.create(app_module_1.AppModule, {
+        logger: ['error', 'warn', 'log'],
+        rawBody: true,
+    });
     const config = app.get(config_1.ConfigService);
     app.use((0, helmet_1.default)());
     app.use(compression());
-    app.enableCors({ origin: config.get('CORS_ORIGIN', 'http://localhost:3000'), credentials: true });
+    app.enableCors({
+        origin: config.getOrThrow('CORS_ORIGIN'),
+        credentials: true,
+        methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+        allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'stripe-signature'],
+    });
     app.enableVersioning({ type: common_1.VersioningType.URI, defaultVersion: '1' });
     app.setGlobalPrefix('api');
     app.useGlobalPipes(new common_1.ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }));

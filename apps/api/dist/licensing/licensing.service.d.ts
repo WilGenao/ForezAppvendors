@@ -1,4 +1,4 @@
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager } from 'typeorm';
 import Redis from 'ioredis';
 import { License } from './entities/license.entity';
 import { ValidateLicenseDto } from './dto/validate-license.dto';
@@ -35,4 +35,5 @@ export declare class LicensingService {
     private registerHwidAsync;
     generateLicenseKey(subscriptionId: string, userId: string, botId: string, botVersionId: string): Promise<License>;
     revokeLicense(licenseId: string, reason: string): Promise<void>;
+    createLicenseForSubscription(manager: EntityManager, subscriptionId: string, userId: string, botId: string): Promise<string>;
 }

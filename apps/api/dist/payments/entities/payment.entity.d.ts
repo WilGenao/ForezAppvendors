@@ -1,14 +1,11 @@
 export declare class Payment {
     id: string;
-    subscriptionId: string;
     userId: string;
+    botListingId: string;
+    listingType: string;
+    stripeSessionId: string;
     status: string;
-    amountCents: number;
-    currency: string;
-    platformFeeCents: number;
-    sellerPayoutCents: number;
-    stripePaymentIntentId: string;
-    metadata: Record<string, unknown>;
+    amount: number;
     createdAt: Date;
     updatedAt: Date;
 }

@@ -14,3 +14,6 @@ apps/forexbot-frontend/.env.local
 !apps/api/.env.example
 !apps/analytics/.env.example
 repomix-output.xml
+apps/analytics/.env
+apps/api/.env
+apps/forexbot-frontend/.env.local

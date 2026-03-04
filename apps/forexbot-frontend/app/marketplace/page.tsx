@@ -1,224 +1,270 @@
-﻿'use client';
-import { useState, useEffect } from 'react';
+'use client';
+
+/**
+ * FIX: Replaced MOCK_BOTS hardcoded data with real API calls via useMarketplaceBots hook.
+ * The hook calls GET /marketplace/bots with filters and pagination.
+ * Falls back gracefully if the API is unavailable.
+ */
+
+import { useState } from 'react';
 import Link from 'next/link';
-import { Activity, Search, SlidersHorizontal, ShieldCheck, ChevronUp, ChevronDown, RefreshCw } from 'lucide-react';
-import { marketplaceApi } from '@/lib/api';
+import {
+  Activity,
+  Search,
+  SlidersHorizontal,
+  ShieldCheck,
+  ChevronUp,
+  ChevronDown,
+  RefreshCw,
+  AlertTriangle,
+} from 'lucide-react';
+import { useMarketplaceBots } from '@/lib/hooks';
 
-const MOCK_BOTS = [
-  { id: 1, slug: '1', name: 'EuroScalper.Pro', seller: 'AlgoTrader Labs', pair: 'EURUSD', platform: 'MT5', wr: 68.4, pf: 2.54, dd: -4.2, sharpe: 2.31, trades: 1842, price: 89, verified: true },
-  { id: 2, slug: '2', name: 'GoldRush.Swing', seller: 'QuantFX Capital', pair: 'XAUUSD', platform: 'MT4', wr: 61.2, pf: 1.98, dd: -6.8, sharpe: 1.87, trades: 934, price: 129, verified: true },
-  { id: 3, slug: '3', name: 'TrendHarvester.v3', seller: 'SilverFox Systems', pair: 'MULTI', platform: 'BOTH', wr: 54.9, pf: 3.21, dd: -3.1, sharpe: 3.12, trades: 2201, price: 199, verified: true },
-  { id: 4, slug: '4', name: 'AsiaBreakout.v2', seller: 'NightOwl Trading', pair: 'USDJPY', platform: 'MT5', wr: 72.1, pf: 2.88, dd: -5.4, sharpe: 2.64, trades: 1103, price: 149, verified: true },
-  { id: 5, slug: '5', name: 'NightScalper.EA', seller: 'LondonFX Group', pair: 'GBPUSD', platform: 'MT4', wr: 66.3, pf: 2.11, dd: -7.2, sharpe: 1.94, trades: 3420, price: 79, verified: false },
-  { id: 6, slug: '6', name: 'VolatilityHunter', seller: 'AlphaQuant LLC', pair: 'MULTI', platform: 'MT5', wr: 58.7, pf: 2.67, dd: -8.1, sharpe: 2.18, trades: 776, price: 249, verified: true },
-  { id: 7, slug: '7', name: 'CableRider.Pro', seller: 'BritishAlgo Co', pair: 'GBPUSD', platform: 'MT4', wr: 63.8, pf: 2.02, dd: -5.9, sharpe: 1.76, trades: 1567, price: 99, verified: true },
-  { id: 8, slug: '8', name: 'AussieGrid.EA', seller: 'PacificQuant', pair: 'AUDUSD', platform: 'BOTH', wr: 51.2, pf: 1.74, dd: -11.3, sharpe: 1.44, trades: 4891, price: 59, verified: false },
-  { id: 9, slug: '9', name: 'SwissFranc.Bot', seller: 'AlpineTraders', pair: 'USDCHF', platform: 'MT5', wr: 69.4, pf: 2.93, dd: -4.7, sharpe: 2.87, trades: 621, price: 179, verified: true },
-  { id: 10, slug: '10', name: 'NewsTrader.v4', seller: 'EventFX Systems', pair: 'MULTI', platform: 'BOTH', wr: 74.2, pf: 3.44, dd: -2.8, sharpe: 3.61, trades: 312, price: 299, verified: true },
+type SortKey = 'avg_rating' | 'profit_factor' | 'max_drawdown_pct' | 'sharpe_ratio' | 'all_time_trades' | 'price_cents';
+
+const COLUMNS: { key: SortKey | string; label: string; align: string }[] = [
+  { key: 'bot_name',          label: 'EA Name',      align: 'left' },
+  { key: 'seller_name',       label: 'Provider',     align: 'left' },
+  { key: 'mt_platform',       label: 'Platform',     align: 'center' },
+  { key: 'avg_rating',        label: 'Win Rate',     align: 'right' },
+  { key: 'profit_factor',     label: 'P.Factor',     align: 'right' },
+  { key: 'max_drawdown_pct',  label: 'Max DD',       align: 'right' },
+  { key: 'sharpe_ratio',      label: 'Sharpe',       align: 'right' },
+  { key: 'all_time_trades',   label: 'Trades',       align: 'right' },
+  { key: 'price_cents',       label: 'Price/mo',     align: 'right' },
+  { key: 'actions',           label: '',             align: 'center' },
 ];
 
-type Bot = typeof MOCK_BOTS[0];
-type SortKey = 'wr' | 'pf' | 'dd' | 'sharpe' | 'trades' | 'price';
-
-const COLUMNS = [
-  { key: 'name', label: 'EA Name', align: 'left' },
-  { key: 'seller', label: 'Provider', align: 'left' },
-  { key: 'pair', label: 'Symbol', align: 'center' },
-  { key: 'platform', label: 'Platform', align: 'center' },
-  { key: 'wr', label: 'Win Rate', align: 'right' },
-  { key: 'pf', label: 'Profit Factor', align: 'right' },
-  { key: 'dd', label: 'Max DD', align: 'right' },
-  { key: 'sharpe', label: 'Sharpe', align: 'right' },
-  { key: 'trades', label: 'Trades', align: 'right' },
-  { key: 'price', label: 'Price/mo', align: 'right' },
-];
+const SORT_API_MAP: Record<string, string> = {
+  avg_rating:       'rating',
+  profit_factor:    'rating',
+  max_drawdown_pct: 'rating',
+  sharpe_ratio:     'rating',
+  all_time_trades:  'subscribers',
+  price_cents:      'price_asc',
+};
 
 export default function MarketplacePage() {
-  const [bots, setBots] = useState<Bot[]>(MOCK_BOTS);
-  const [loading, setLoading] = useState(true);
-  const [apiSource, setApiSource] = useState(false);
   const [search, setSearch] = useState('');
-  const [platform, setPlatform] = useState('ALL');
-  const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('sharpe');
+  const [searchInput, setSearchInput] = useState('');
+  const [mtPlatform, setMtPlatform] = useState('');
+  const [sortBy, setSortBy] = useState('rating');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
-  const [selected, setSelected] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    marketplaceApi.listBots({ page: 1, limit: 50 })
-      .then(res => {
-        if (res.data.data && res.data.data.length > 0) {
-          const apiBots = res.data.data.map((b: Record<string, unknown>, i: number) => ({
-            id: i + 1,
-            slug: b.slug as string,
-            name: b.bot_name as string || b.name as string,
-            seller: b.seller_name as string || 'Unknown',
-            pair: (b.currency_pairs as string[])?.[0] || 'MULTI',
-            platform: b.mt_platform as string || 'MT5',
-            wr: Number(b.win_rate) || 0,
-            pf: Number(b.profit_factor) || 0,
-            dd: Number(b.max_drawdown_pct) || 0,
-            sharpe: Number(b.sharpe_ratio) || 0,
-            trades: Number(b.total_trades) || 0,
-            price: Number(b.price_cents) / 100 || 0,
-            verified: b.is_verified as boolean || false,
-          }));
-          setBots(apiBots);
-          setApiSource(true);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, loading, error, refetch } = useMarketplaceBots({
+    search: search || undefined,
+    mtPlatform: mtPlatform || undefined,
+    sortBy,
+    page,
+    limit: 20,
+  });
 
-  const handleSort = (key: string) => {
-    if (key === sortKey) setSortDir(d => d === 'desc' ? 'asc' : 'desc');
-    else { setSortKey(key as SortKey); setSortDir('desc'); }
+  const bots: Record<string, unknown>[] = (data?.data as Record<string, unknown>[]) || [];
+  const total = data?.total || 0;
+  const totalPages = Math.ceil(total / 20);
+
+  const handleSearch = () => {
+    setSearch(searchInput);
+    setPage(1);
   };
 
-  const filtered = bots
-    .filter(b => {
-      if (search && !b.name.toLowerCase().includes(search.toLowerCase()) && !b.pair.toLowerCase().includes(search.toLowerCase())) return false;
-      if (platform !== 'ALL' && b.platform !== platform && b.platform !== 'BOTH') return false;
-      if (verifiedOnly && !b.verified) return false;
-      return true;
-    })
-    .sort((a, b) => {
-      const av = a[sortKey] as number;
-      const bv = b[sortKey] as number;
-      return sortDir === 'desc' ? (bv > av ? 1 : -1) : (av > bv ? 1 : -1);
-    });
+  const handleSort = (key: string) => {
+    const apiKey = SORT_API_MAP[key] || 'rating';
+    if (sortBy === apiKey) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortBy(apiKey);
+      setSortDir('desc');
+      setPage(1);
+    }
+  };
+
+  const fmt = (v: unknown, decimals = 2) =>
+    v != null && v !== '' ? Number(v).toFixed(decimals) : '—';
 
   return (
-    <div className="min-h-screen bg-mt-bg flex flex-col">
-      <div className="bg-mt-panel2 border-b border-border h-10 flex items-center px-4 justify-between flex-shrink-0">
+    <div className="min-h-screen bg-[#0d1117] text-white font-mono">
+      {/* Header */}
+      <div className="bg-[#161b22] border-b border-[#30363d] h-10 flex items-center px-4 justify-between">
         <Link href="/" className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-mt-blue" />
-          <span className="font-mono text-sm font-bold text-white tracking-wider">FOREXBOT</span>
-          <span className="font-mono text-xs text-muted">v2.4</span>
+          <Activity className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-bold tracking-wider">FOREXBOT</span>
+          <span className="text-[10px] text-gray-500">MARKETPLACE</span>
         </Link>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-[10px] text-muted hidden md:block">
-            {apiSource ? <span className="text-mt-green">● API LIVE</span> : <span className="text-mt-yellow">● DEMO DATA</span>}
-          </span>
-          <Link href="/auth/login" className="font-mono text-xs text-muted hover:text-white">LOGIN</Link>
-          <Link href="/auth/register" className="font-mono text-xs bg-mt-blue hover:bg-blue-500 text-white px-3 py-1 transition-colors">OPEN_ACCOUNT</Link>
+        <div className="flex items-center gap-3 text-xs text-gray-400">
+          <span>{total} bots</span>
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        <div className="hidden lg:flex w-56 border-r border-border flex-col bg-mt-panel2 flex-shrink-0">
-          <div className="px-4 py-2 border-b border-border flex items-center gap-2">
-            <SlidersHorizontal className="w-3 h-3 text-muted" />
-            <span className="font-mono text-[10px] text-muted tracking-widest uppercase">Filters</span>
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* Filters */}
+        <div className="flex items-center gap-3 mb-6">
+          <div className="flex-1 flex items-center gap-2 bg-[#161b22] border border-[#30363d] rounded px-3 py-2">
+            <Search className="w-4 h-4 text-gray-500 shrink-0" />
+            <input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              placeholder="Search bots..."
+              className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none"
+            />
           </div>
-          <div className="p-3 space-y-4 overflow-y-auto flex-1">
-            <div>
-              <div className="font-mono text-[10px] text-muted uppercase tracking-wider mb-2">// Platform</div>
-              {['ALL', 'MT4', 'MT5', 'BOTH'].map(p => (
-                <button key={p} onClick={() => setPlatform(p)}
-                  className={`w-full text-left font-mono text-xs px-3 py-1.5 mb-0.5 transition-colors ${platform === p ? 'bg-mt-blue text-white' : 'text-muted hover:text-white hover:bg-surface'}`}>
-                  {platform === p ? '► ' : '  '}{p}
-                </button>
-              ))}
-            </div>
-            <div>
-              <div className="font-mono text-[10px] text-muted uppercase tracking-wider mb-2">// Verification</div>
-              <button onClick={() => setVerifiedOnly(!verifiedOnly)}
-                className={`w-full text-left font-mono text-xs px-3 py-1.5 transition-colors flex items-center gap-2 ${verifiedOnly ? 'bg-mt-blue text-white' : 'text-muted hover:text-white hover:bg-surface'}`}>
-                <ShieldCheck className="w-3 h-3" /> Verified Only
-              </button>
-            </div>
-            <div className="border-t border-border pt-3">
-              <div className="font-mono text-[10px] text-muted uppercase tracking-wider mb-2">// Summary</div>
-              <div className="space-y-1">
-                {[
-                  { label: 'SHOWING', value: `${filtered.length}/${bots.length}` },
-                  { label: 'VERIFIED', value: filtered.filter(b => b.verified).length, pos: true },
-                  { label: 'AVG_SHARPE', value: filtered.length ? (filtered.reduce((s, b) => s + b.sharpe, 0) / filtered.length).toFixed(2) : '—', pos: true },
-                  { label: 'AVG_WINRATE', value: filtered.length ? `${(filtered.reduce((s, b) => s + b.wr, 0) / filtered.length).toFixed(1)}%` : '—', pos: true },
-                ].map(s => (
-                  <div key={s.label} className="flex justify-between">
-                    <span className="font-mono text-[10px] text-muted">{s.label}</span>
-                    <span className={`font-mono text-[10px] ${'pos' in s && s.pos ? 'val-pos' : 'text-white'}`}>{s.value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <select
+            value={mtPlatform}
+            onChange={(e) => { setMtPlatform(e.target.value); setPage(1); }}
+            className="bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none"
+          >
+            <option value="">All Platforms</option>
+            <option value="MT4">MT4</option>
+            <option value="MT5">MT5</option>
+          </select>
+          <button
+            onClick={handleSearch}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm font-bold transition-colors"
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+          </button>
+          <button onClick={refetch} className="p-2 text-gray-400 hover:text-white transition-colors">
+            <RefreshCw className="w-4 h-4" />
+          </button>
         </div>
 
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="border-b border-border px-4 py-2 flex items-center gap-3 bg-mt-panel2 flex-shrink-0">
-            <div className="relative flex-1 max-w-xs">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted" />
-              <input type="text" placeholder="Search EA, symbol..." value={search} onChange={e => setSearch(e.target.value)}
-                className="w-full bg-mt-bg border border-border focus:border-mt-blue text-white placeholder-[#333] font-mono text-xs pl-7 pr-3 py-1.5 outline-none transition-colors" />
-            </div>
-            {loading && <RefreshCw className="w-3 h-3 text-muted animate-spin" />}
-            <div className="ml-auto">
-              <span className="font-mono text-[10px] text-muted">{filtered.length} results</span>
-            </div>
+        {/* Error state */}
+        {error && (
+          <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded p-3 mb-4">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {error} —{' '}
+            <button onClick={refetch} className="underline hover:no-underline">
+              retry
+            </button>
           </div>
+        )}
 
-          <div className="flex-1 overflow-auto">
-            <table className="mt-table w-full">
-              <thead className="sticky top-0 bg-mt-panel2 z-10">
-                <tr>
-                  {COLUMNS.map(col => (
-                    <th key={col.key} onClick={() => ['wr','pf','dd','sharpe','trades','price'].includes(col.key) && handleSort(col.key)}
-                      className={`${col.align === 'left' ? 'text-left' : col.align === 'center' ? 'text-center' : 'text-right'} ${['wr','pf','dd','sharpe','trades','price'].includes(col.key) ? 'cursor-pointer hover:text-white' : ''} select-none`}>
+        {/* Table */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-[#30363d]">
+                  {COLUMNS.map((col) => (
+                    <th
+                      key={col.key}
+                      onClick={() => col.key !== 'actions' && handleSort(col.key)}
+                      className={`px-3 py-2 text-gray-400 font-medium uppercase tracking-wider text-${col.align} ${
+                        col.key !== 'actions' ? 'cursor-pointer hover:text-white select-none' : ''
+                      }`}
+                    >
                       <span className="inline-flex items-center gap-1">
                         {col.label}
-                        {sortKey === col.key && (sortDir === 'desc' ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />)}
+                        {col.key !== 'actions' && SORT_API_MAP[col.key] === sortBy && (
+                          sortDir === 'desc'
+                            ? <ChevronDown className="w-3 h-3" />
+                            : <ChevronUp className="w-3 h-3" />
+                        )}
                       </span>
                     </th>
                   ))}
-                  <th className="text-center">Action</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(bot => (
-                  <tr key={bot.id} onClick={() => setSelected(selected === bot.id ? null : bot.id)}
-                    className={`cursor-pointer ${selected === bot.id ? 'bg-mt-blue/10 border-l-2 border-mt-blue' : ''}`}>
-                    <td className="text-left">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-white font-semibold">{bot.name}</span>
-                        {bot.verified && <ShieldCheck className="w-3 h-3 text-mt-green flex-shrink-0" />}
-                      </div>
-                    </td>
-                    <td className="text-left text-muted">{bot.seller}</td>
-                    <td className="text-center"><span className="font-mono text-[10px] bg-surface border border-border px-1.5 py-0.5 text-white">{bot.pair}</span></td>
-                    <td className="text-center">
-                      <span className={`font-mono text-[10px] ${bot.platform === 'MT5' ? 'text-mt-blue' : bot.platform === 'MT4' ? 'text-mt-yellow' : 'text-mt-green'}`}>{bot.platform}</span>
-                    </td>
-                    <td className="text-right val-pos">{bot.wr > 0 ? `${bot.wr}%` : '—'}</td>
-                    <td className="text-right val-pos">{bot.pf > 0 ? bot.pf : '—'}</td>
-                    <td className="text-right val-neg">{bot.dd < 0 ? `${bot.dd}%` : '—'}</td>
-                    <td className={`text-right ${bot.sharpe >= 2.5 ? 'val-pos' : bot.sharpe >= 2 ? 'text-mt-yellow' : 'text-muted'}`}>{bot.sharpe > 0 ? bot.sharpe : '—'}</td>
-                    <td className="text-right text-muted">{bot.trades > 0 ? bot.trades.toLocaleString() : '—'}</td>
-                    <td className="text-right text-white font-semibold">{bot.price > 0 ? `$${bot.price}` : 'Free'}</td>
-                    <td className="text-center">
-                      <Link href={`/marketplace/${bot.slug}`} onClick={e => e.stopPropagation()}
-                        className="font-mono text-[10px] bg-mt-blue hover:bg-blue-500 text-white px-2 py-1 transition-colors inline-block">
-                        VIEW
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
+                {loading
+                  ? Array.from({ length: 8 }).map((_, i) => (
+                      <tr key={i} className="border-b border-[#30363d] animate-pulse">
+                        {COLUMNS.map((c) => (
+                          <td key={c.key} className="px-3 py-3">
+                            <div className="h-3 bg-[#30363d] rounded" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  : bots.map((bot, i) => (
+                      <tr
+                        key={String(bot.listing_id || i)}
+                        className="border-b border-[#30363d] hover:bg-[#21262d] transition-colors"
+                      >
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-white">{String(bot.bot_name ?? '—')}</span>
+                            {bot.is_verified && <ShieldCheck className="w-3 h-3 text-blue-400" />}
+                          </div>
+                        </td>
+                        <td className="px-3 py-3 text-gray-300">{String(bot.seller_name ?? '—')}</td>
+                        <td className="px-3 py-3 text-center">
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            String(bot.mt_platform) === 'MT5'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : String(bot.mt_platform) === 'MT4'
+                              ? 'bg-purple-500/20 text-purple-400'
+                              : 'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {String(bot.mt_platform ?? '—')}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-right text-green-400">
+                          {bot.win_rate != null ? `${fmt(Number(bot.win_rate) * 100, 1)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-right text-white">{fmt(bot.profit_factor)}</td>
+                        <td className="px-3 py-3 text-right text-red-400">
+                          {bot.max_drawdown_pct != null ? `${fmt(bot.max_drawdown_pct, 1)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-right text-white">{fmt(bot.sharpe_ratio)}</td>
+                        <td className="px-3 py-3 text-right text-gray-300">
+                          {bot.all_time_trades != null ? Number(bot.all_time_trades).toLocaleString() : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-right font-bold text-white">
+                          {bot.price_cents != null
+                            ? `$${(Number(bot.price_cents) / 100).toFixed(0)}`
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <Link
+                            href={`/marketplace/${String(bot.bot_slug ?? bot.bot_id)}`}
+                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold transition-colors whitespace-nowrap"
+                          >
+                            View
+                          </Link>
+                        </td>
+                      </tr>
+                    ))}
               </tbody>
             </table>
-            {filtered.length === 0 && !loading && (
-              <div className="flex items-center justify-center py-20">
-                <p className="font-mono text-xs text-muted">&gt; NO_RESULTS_FOUND()</p>
-              </div>
-            )}
           </div>
 
-          <div className="border-t border-border px-4 py-1.5 bg-mt-panel2 flex items-center justify-between flex-shrink-0">
-            <span className="font-mono text-[10px] text-muted">{filtered.length} EAs · {apiSource ? 'Live API data' : 'Demo data'}</span>
-            <span className="font-mono text-[10px] text-mt-green">● LIVE</span>
-          </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d]">
+              <span className="text-xs text-gray-400">
+                Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-3 py-1 border border-[#30363d] rounded text-xs disabled:opacity-30 hover:bg-[#21262d] transition-colors"
+                >
+                  Prev
+                </button>
+                <span className="text-xs text-gray-400">
+                  {page} / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-3 py-1 border border-[#30363d] rounded text-xs disabled:opacity-30 hover:bg-[#21262d] transition-colors"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Empty state */}
+          {!loading && bots.length === 0 && !error && (
+            <div className="py-16 text-center text-gray-500 text-sm">
+              No bots found matching your criteria.
+            </div>
+          )}
         </div>
       </div>
     </div>

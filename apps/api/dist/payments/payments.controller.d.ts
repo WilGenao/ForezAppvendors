@@ -6,10 +6,7 @@ export declare class PaymentsController {
     private readonly paymentsService;
     constructor(paymentsService: PaymentsService);
     createCheckout(user: JwtPayload, dto: CreateCheckoutDto): Promise<{
-        message: string;
-        userId: string;
-        botListingId: string;
-        listingType: string;
+        url: string;
     }>;
     stripeWebhook(req: Request & {
         rawBody: Buffer;

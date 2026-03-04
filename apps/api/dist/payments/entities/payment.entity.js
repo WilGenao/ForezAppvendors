@@ -19,50 +19,38 @@ __decorate([
     __metadata("design:type", String)
 ], Payment.prototype, "id", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'subscription_id', nullable: true }),
-    __metadata("design:type", String)
-], Payment.prototype, "subscriptionId", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ name: 'user_id' }),
+    (0, typeorm_1.Column)(),
     __metadata("design:type", String)
 ], Payment.prototype, "userId", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ default: 'pending' }),
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], Payment.prototype, "botListingId", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], Payment.prototype, "listingType", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
+    __metadata("design:type", String)
+], Payment.prototype, "stripeSessionId", void 0);
+__decorate([
+    (0, typeorm_1.Column)(),
     __metadata("design:type", String)
 ], Payment.prototype, "status", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ name: 'amount_cents' }),
+    (0, typeorm_1.Column)('int'),
     __metadata("design:type", Number)
-], Payment.prototype, "amountCents", void 0);
+], Payment.prototype, "amount", void 0);
 __decorate([
-    (0, typeorm_1.Column)({ length: 3, default: 'USD' }),
-    __metadata("design:type", String)
-], Payment.prototype, "currency", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ name: 'platform_fee_cents', default: 0 }),
-    __metadata("design:type", Number)
-], Payment.prototype, "platformFeeCents", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ name: 'seller_payout_cents', default: 0 }),
-    __metadata("design:type", Number)
-], Payment.prototype, "sellerPayoutCents", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ name: 'stripe_payment_intent_id', unique: true, nullable: true }),
-    __metadata("design:type", String)
-], Payment.prototype, "stripePaymentIntentId", void 0);
-__decorate([
-    (0, typeorm_1.Column)({ type: 'jsonb', default: {} }),
-    __metadata("design:type", Object)
-], Payment.prototype, "metadata", void 0);
-__decorate([
-    (0, typeorm_1.CreateDateColumn)({ name: 'created_at' }),
+    (0, typeorm_1.CreateDateColumn)(),
     __metadata("design:type", Date)
 ], Payment.prototype, "createdAt", void 0);
 __decorate([
-    (0, typeorm_1.UpdateDateColumn)({ name: 'updated_at' }),
+    (0, typeorm_1.UpdateDateColumn)(),
     __metadata("design:type", Date)
 ], Payment.prototype, "updatedAt", void 0);
 exports.Payment = Payment = __decorate([
-    (0, typeorm_1.Entity)('payments')
+    (0, typeorm_1.Entity)()
 ], Payment);
 //# sourceMappingURL=payment.entity.js.map

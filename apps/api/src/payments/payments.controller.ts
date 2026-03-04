@@ -15,7 +15,11 @@ export class PaymentsController {
   @UseGuards(AuthGuard('jwt'))
   @Post('checkout')
   createCheckout(@CurrentUser() user: JwtPayload, @Body() dto: CreateCheckoutDto) {
-    return this.paymentsService.createCheckoutSession(user.sub, dto.botListingId, dto.listingType);
+    return this.paymentsService.createCheckoutSession(
+    user.sub,
+    dto.botListingId,
+    dto.listingType,
+);
   }
 
   @Post('webhooks/stripe')

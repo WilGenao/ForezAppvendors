@@ -25,15 +25,92 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         this.paymentRepo = paymentRepo;
         this.config = config;
         this.logger = new common_1.Logger(PaymentsService_1.name);
-        this.stripe = new stripe_1.default(config.get('STRIPE_SECRET_KEY', 'sk_test_placeholder'), { apiVersion: '2024-04-10' });
+        this.stripe = new stripe_1.default(this.config.getOrThrow('STRIPE_SECRET_KEY'), { apiVersion: '2024-04-10' });
     }
     async createCheckoutSession(userId, botListingId, listingType) {
-        return { message: 'Checkout session creation - configure Stripe keys to enable', userId, botListingId, listingType };
+        let amount;
+        switch (listingType) {
+            case 'subscription_monthly':
+                amount = 2900;
+                break;
+            case 'subscription_yearly':
+                amount = 29000;
+                break;
+            case 'one_time':
+                amount = 9900;
+                break;
+            default:
+                throw new common_1.BadRequestException('Invalid listing type');
+        }
+        const frontendUrl = this.config.getOrThrow('FRONTEND_URL');
+        const mode = listingType === 'one_time' ? 'payment' : 'subscription';
+        const session = await this.stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode,
+            line_items: [
+                {
+                    price_data: {
+                        currency: 'usd',
+                        product_data: {
+                            name: `Bot Listing ${botListingId}`,
+                        },
+                        unit_amount: amount,
+                        recurring: listingType === 'one_time'
+                            ? undefined
+                            : {
+                                interval: listingType === 'subscription_monthly'
+                                    ? 'month'
+                                    : 'year',
+                            },
+                    },
+                    quantity: 1,
+                },
+            ],
+            metadata: {
+                userId,
+                botListingId,
+                listingType,
+            },
+            success_url: `${frontendUrl}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${frontendUrl}/payment-cancel`,
+        });
+        await this.paymentRepo.save({
+            userId,
+            botListingId,
+            listingType,
+            stripeSessionId: session.id,
+            status: 'pending',
+            amount,
+        });
+        return { url: session.url };
     }
     async handleWebhook(rawBody, signature) {
-        if (!rawBody || !signature)
-            throw new common_1.BadRequestException('Invalid webhook');
-        this.logger.log({ msg: 'Webhook received' });
+        const webhookSecret = this.config.getOrThrow('STRIPE_WEBHOOK_SECRET');
+        let event;
+        try {
+            event = this.stripe.webhooks.constructEvent(rawBody, signature, webhookSecret);
+        }
+        catch (err) {
+            this.logger.error('Stripe webhook signature verification failed');
+            throw new common_1.BadRequestException('Invalid webhook signature');
+        }
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            const payment = await this.paymentRepo.findOne({
+                where: { stripeSessionId: session.id },
+            });
+            if (!payment) {
+                this.logger.warn(`Payment not found for session ${session.id}`);
+                return;
+            }
+            payment.status = 'completed';
+            await this.paymentRepo.save(payment);
+            this.logger.log(`Payment completed for user ${payment.userId}`);
+        }
+        if (event.type === 'checkout.session.expired') {
+            const session = event.data.object;
+            await this.paymentRepo.update({ stripeSessionId: session.id }, { status: 'expired' });
+        }
     }
 };
 exports.PaymentsService = PaymentsService;
