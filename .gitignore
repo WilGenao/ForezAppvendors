@@ -1,1 +1,15 @@
 node_modules
+apps/analytics/.env
+
+# Environment files — NEVER commit
+.env
+.env.local
+.env.production
+apps/api/.env
+apps/analytics/.env
+apps/forexbot-frontend/.env.local
+
+# Keep only .env.example files
+!.env.example
+!apps/api/.env.example
+!apps/analytics/.env.example
