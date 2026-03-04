@@ -1,7 +1,4 @@
 # .github/workflows/ci.yml
-# Runs on every push and pull request to main/master.
-# Jobs: lint → test → build (all in parallel per app)
-
 name: CI
 
 on:
@@ -37,32 +34,6 @@ jobs:
     defaults:
       run:
         working-directory: apps/api
-
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_DB: forexbot_test
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
-
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/forexbot_test
@@ -72,7 +43,12 @@ jobs:
       JWT_REFRESH_SECRET: test_refresh_secret_min_32_chars_long
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
-
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: test@forexbot.io
+      FRONTEND_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,8 +57,8 @@ jobs:
           cache: npm
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
-      - name: Run unit tests
-        run: npm run test -- --passWithNoTests --forceExit
+      # Unit tests only — no DB needed (mocked)
+      - run: npm run test -- --passWithNoTests --forceExit
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         if: always()
@@ -112,7 +88,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
-
       redis:
         image: redis:7
         ports:
@@ -132,6 +107,12 @@ jobs:
       JWT_REFRESH_SECRET: test_refresh_secret_min_32_chars_long
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      SMTP_HOST: localhost
+      SMTP_PORT: "1025"
+      SMTP_USER: ""
+      SMTP_PASS: ""
+      SMTP_FROM: test@forexbot.io
+      FRONTEND_URL: http://localhost:3000
 
     steps:
       - uses: actions/checkout@v4
@@ -141,10 +122,10 @@ jobs:
           cache: npm
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
-      - name: Run migrations on test DB
+      - name: Run migrations
         run: npm run migration:run
       - name: Run integration tests
-        run: npm run test -- --testPathPattern=integration --passWithNoTests --forceExit
+        run: npm run test:integration
 
   api-build:
     name: API — Build
@@ -162,12 +143,6 @@ jobs:
           cache-dependency-path: apps/api/package-lock.json
       - run: npm ci
       - run: npm run build
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: api-dist
-          path: apps/api/dist/
-          retention-days: 1
 
   # ─── Frontend ───────────────────────────────────────────────────────────────
   frontend-lint:
@@ -184,7 +159,8 @@ jobs:
           cache: npm
           cache-dependency-path: apps/forexbot-frontend/package-lock.json
       - run: npm ci
-      - run: npm run lint
+      # NEXT_LINT_DISABLE_CACHING avoids cache issues in CI
+      - run: NEXT_LINT_DISABLE_CACHING=1 npm run lint
 
   frontend-build:
     name: Frontend — Build
@@ -204,14 +180,8 @@ jobs:
           cache-dependency-path: apps/forexbot-frontend/package-lock.json
       - run: npm ci
       - run: npm run build
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: frontend-build
-          path: apps/forexbot-frontend/.next/
-          retention-days: 1
 
-  # ─── Summary gate ───────────────────────────────────────────────────────────
+  # ─── Gate ───────────────────────────────────────────────────────────────────
   ci-passed:
     name: CI Passed ✓
     runs-on: ubuntu-latest
