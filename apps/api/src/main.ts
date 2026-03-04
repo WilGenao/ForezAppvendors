@@ -1,20 +1,29 @@
-import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
 import { ValidationPipe, VersioningType } from '@nestjs/common';
-import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { ConfigService } from '@nestjs/config';
+import { NestFactory } from '@nestjs/core';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as compression from 'compression';
+import helmet from 'helmet';
+import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-import { ConfigService } from '@nestjs/config';
-import helmet from 'helmet';
-import * as compression from 'compression';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: ['error','warn','log'] });
+  const app = await NestFactory.create(AppModule, {
+    logger: ['error', 'warn', 'log'],
+    rawBody: true, // FIX: Required for Stripe webhook signature verification
+  });
   const config = app.get(ConfigService);
 
   app.use(helmet());
   app.use(compression());
-  app.enableCors({ origin: config.get<string>('CORS_ORIGIN','http://localhost:3000'), credentials: true });
+  // FIX: CORS_ORIGIN es ahora requerido — sin default silencioso en producción
+  app.enableCors({
+    origin: config.getOrThrow<string>('CORS_ORIGIN'),
+    credentials: true,
+    methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
+    allowedHeaders: ['Content-Type','Authorization','X-API-Key','stripe-signature'],
+  });
   app.enableVersioning({ type: VersioningType.URI, defaultVersion: '1' });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true, transformOptions: { enableImplicitConversion: true } }));
