@@ -13,3 +13,4 @@ apps/forexbot-frontend/.env.local
 !.env.example
 !apps/api/.env.example
 !apps/analytics/.env.example
+repomix-output.xml
