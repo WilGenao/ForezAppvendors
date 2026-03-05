@@ -41,7 +41,7 @@ let LicensingService = LicensingService_1 = class LicensingService {
         this.MAX_VALIDATIONS_PER_MINUTE = 10;
     }
     async createLicenseForSubscription(manager, subscriptionId, userId, botId) {
-        const [botVersion] = await manager.query(`SELECT id FROM bot_versions WHERE bot_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`, [botId]);
+        const [botVersion] = await manager.query(`SELECT id FROM bot_versions WHERE bot_id = $1 AND is_current = true ORDER BY created_at DESC LIMIT 1`, [botId]);
         const botVersionId = botVersion?.id ?? null;
         const licenseKey = `LK-${(0, crypto_1.randomBytes)(16).toString('hex').toUpperCase()}`;
         await manager.query(`INSERT INTO licenses

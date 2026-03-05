@@ -52,7 +52,7 @@ export class LicensingService {
   ): Promise<string> {
     // Get the latest active bot version for this bot
     const [botVersion] = await manager.query(
-      `SELECT id FROM bot_versions WHERE bot_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`,
+      `SELECT id FROM bot_versions WHERE bot_id = $1 AND is_current = true ORDER BY created_at DESC LIMIT 1`,
       [botId],
     );
 
@@ -249,3 +249,4 @@ export class LicensingService {
     });
   }
 }
+

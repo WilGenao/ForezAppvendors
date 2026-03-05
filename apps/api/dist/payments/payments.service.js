@@ -47,9 +47,6 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
          AND b.status = 'active'`, [botListingId]);
         if (!listing)
             throw new common_1.NotFoundException('Listing not found or not available');
-        if (!listing.stripe_onboarding_done || !listing.stripe_account_id) {
-            throw new common_1.BadRequestException('Seller has not completed payment setup');
-        }
         const [existingSubscription] = await this.dataSource.query(`SELECT id FROM subscriptions
        WHERE user_id = $1 AND bot_listing_id = $2 AND status IN ('trialing','active')
        LIMIT 1`, [userId, botListingId]);
@@ -57,7 +54,6 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             throw new common_1.BadRequestException('You already have an active subscription to this bot');
         }
         const frontendUrl = this.config.get('FRONTEND_URL', 'http://localhost:3000');
-        const platformFee = Math.round(listing.price_cents * PLATFORM_FEE_PERCENT);
         let session;
         if (listing.listing_type === 'one_time') {
             session = await this.stripe.checkout.sessions.create({
@@ -65,33 +61,34 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
                 line_items: [
                     {
                         price_data: {
-                            currency: listing.currency.toLowerCase(),
-                            product_data: { name: listing.bot_name, metadata: { bot_id: listing.bot_id } },
+                            currency: listing.currency.toLowerCase().trim(),
+                            product_data: { name: listing.bot_name },
                             unit_amount: listing.price_cents,
                         },
                         quantity: 1,
                     },
                 ],
-                payment_intent_data: {
-                    application_fee_amount: platformFee,
-                    metadata: {
-                        user_id: userId,
-                        bot_listing_id: botListingId,
-                        listing_type: 'one_time',
-                    },
-                },
                 success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
                 cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
                 client_reference_id: userId,
                 metadata: { user_id: userId, bot_listing_id: botListingId },
-            }, { stripeAccount: listing.stripe_account_id });
+            });
         }
         else {
-            if (!listing.stripe_price_id) {
-                throw new common_1.InternalServerErrorException('Stripe price not configured for this listing. Contact support.');
+            let priceId = listing.stripe_price_id;
+            if (!priceId) {
+                const price = await this.stripe.prices.create({
+                    currency: listing.currency.toLowerCase().trim(),
+                    unit_amount: listing.price_cents,
+                    recurring: {
+                        interval: listing.listing_type === 'subscription_yearly' ? 'year' : 'month',
+                    },
+                    product_data: { name: listing.bot_name },
+                });
+                priceId = price.id;
+                await this.dataSource.query(`UPDATE bot_listings SET stripe_price_id = $1 WHERE id = $2`, [priceId, botListingId]);
             }
             const subscriptionData = {
-                application_fee_percent: PLATFORM_FEE_PERCENT * 100,
                 metadata: {
                     user_id: userId,
                     bot_listing_id: botListingId,
@@ -103,13 +100,13 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             }
             session = await this.stripe.checkout.sessions.create({
                 mode: 'subscription',
-                line_items: [{ price: listing.stripe_price_id, quantity: 1 }],
+                line_items: [{ price: priceId, quantity: 1 }],
                 subscription_data: subscriptionData,
                 success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
                 cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
                 client_reference_id: userId,
                 metadata: { user_id: userId, bot_listing_id: botListingId },
-            }, { stripeAccount: listing.stripe_account_id });
+            });
         }
         this.logger.log({
             msg: 'Checkout session created',
@@ -173,16 +170,9 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
            (user_id, bot_listing_id, stripe_subscription_id, status, current_period_start, current_period_end)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (user_id, bot_listing_id) WHERE status IN ('trialing','active') DO NOTHING
-         RETURNING id`, [
-                userId,
-                botListingId,
-                stripeSubId,
-                listing.listing_type === 'one_time' ? 'active' : 'active',
-                now,
-                periodEnd,
-            ]);
+         RETURNING id`, [userId, botListingId, stripeSubId, 'active', now, periodEnd]);
             if (!subscription) {
-                this.logger.warn({ msg: 'Duplicate checkout — subscription already exists', userId, botListingId });
+                this.logger.warn({ msg: 'Duplicate checkout', userId, botListingId });
                 return;
             }
             const platformFee = Math.round(listing.price_cents * PLATFORM_FEE_PERCENT);
@@ -190,22 +180,13 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
            (user_id, subscription_id, status, amount_cents, currency, platform_fee_cents,
             seller_payout_cents, stripe_payment_intent_id, metadata)
          VALUES ($1, $2, 'succeeded', $3, $4, $5, $6, $7, $8)`, [
-                userId,
-                subscription.id,
-                listing.price_cents,
-                listing.currency,
-                platformFee,
-                listing.price_cents - platformFee,
+                userId, subscription.id, listing.price_cents, listing.currency,
+                platformFee, listing.price_cents - platformFee,
                 session.payment_intent,
                 JSON.stringify({ checkout_session_id: session.id }),
             ]);
             await this.licensingService.createLicenseForSubscription(manager, subscription.id, userId, listing.bot_id);
-            this.logger.log({
-                msg: 'Checkout completed — subscription and license created',
-                userId,
-                botListingId,
-                subscriptionId: subscription.id,
-            });
+            this.logger.log({ msg: 'Checkout completed', userId, botListingId, subscriptionId: subscription.id });
         });
     }
     async handleInvoicePaid(invoice) {
@@ -217,31 +198,26 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
            current_period_start = to_timestamp($1),
            current_period_end   = to_timestamp($2),
            updated_at = NOW()
-       WHERE stripe_subscription_id = $3`, [
-            (invoice.period_start),
-            (invoice.period_end),
-            subId,
-        ]);
-        this.logger.log({ msg: 'Invoice paid — subscription renewed', stripeSubId: subId });
+       WHERE stripe_subscription_id = $3`, [invoice.period_start, invoice.period_end, subId]);
+        this.logger.log({ msg: 'Invoice paid', stripeSubId: subId });
     }
     async handleSubscriptionCancelled(subscription) {
         await this.dataSource.transaction(async (manager) => {
             const [sub] = await manager.query(`UPDATE subscriptions SET status = 'canceled', updated_at = NOW()
-         WHERE stripe_subscription_id = $1
-         RETURNING id`, [subscription.id]);
+         WHERE stripe_subscription_id = $1 RETURNING id`, [subscription.id]);
             if (!sub)
                 return;
             await manager.query(`UPDATE licenses SET status = 'revoked', updated_at = NOW()
          WHERE subscription_id = $1 AND status = 'active'`, [sub.id]);
         });
-        this.logger.log({ msg: 'Subscription cancelled — license revoked', stripeSubId: subscription.id });
+        this.logger.log({ msg: 'Subscription cancelled', stripeSubId: subscription.id });
     }
     async handlePaymentFailed(invoice) {
         if (!invoice.subscription)
             return;
         await this.dataSource.query(`UPDATE subscriptions SET status = 'past_due', updated_at = NOW()
        WHERE stripe_subscription_id = $1`, [invoice.subscription]);
-        this.logger.warn({ msg: 'Payment failed — subscription past_due', stripeSubId: invoice.subscription });
+        this.logger.warn({ msg: 'Payment failed', stripeSubId: invoice.subscription });
     }
 };
 exports.PaymentsService = PaymentsService;

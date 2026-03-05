@@ -160,7 +160,7 @@ describe('Payment → License Integration', () => {
       [buyerUserId, buyerEmail, await hashPassword('Test1234!')],
     );
     await dataSource.query(
-      `INSERT INTO user_roles (user_id, role, is_active) VALUES ($1, 'buyer', true)`,
+      `INSERT INTO user_roles (user_id, role) VALUES ($1, 'buyer', true)`,
       [buyerUserId],
     );
   }
@@ -403,3 +403,4 @@ describe('Payment → License Integration', () => {
     });
   });
 });
+

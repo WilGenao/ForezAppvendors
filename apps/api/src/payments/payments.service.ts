@@ -12,7 +12,6 @@ import Stripe from 'stripe';
 import { Payment } from './entities/payment.entity';
 import { LicensingService } from '../licensing/licensing.service';
 
-// Platform fee: 20% — seller gets 80%
 const PLATFORM_FEE_PERCENT = 0.20;
 
 @Injectable()
@@ -30,18 +29,7 @@ export class PaymentsService {
     this.stripe = new Stripe(stripeKey, { apiVersion: '2024-04-10' });
   }
 
-  /**
-   * Creates a Stripe Checkout Session for a bot listing.
-   * Supports subscription_monthly, subscription_yearly, and one_time listings.
-   *
-   * Flow:
-   * 1. Validate listing exists and is published
-   * 2. Verify seller has completed Stripe Connect onboarding
-   * 3. Create Stripe Checkout Session with application_fee
-   * 4. Return the session URL for frontend redirect
-   */
   async createCheckoutSession(userId: string, botListingId: string, listingType: string) {
-    // 1. Fetch listing details
     const [listing] = await this.dataSource.query(
       `SELECT
          bl.id, bl.price_cents, bl.currency, bl.listing_type, bl.trial_days,
@@ -59,11 +47,7 @@ export class PaymentsService {
     );
 
     if (!listing) throw new NotFoundException('Listing not found or not available');
-    if (!listing.stripe_onboarding_done || !listing.stripe_account_id) {
-      throw new BadRequestException('Seller has not completed payment setup');
-    }
 
-    // 2. Check if user already has an active subscription to this bot
     const [existingSubscription] = await this.dataSource.query(
       `SELECT id FROM subscriptions
        WHERE user_id = $1 AND bot_listing_id = $2 AND status IN ('trialing','active')
@@ -75,50 +59,51 @@ export class PaymentsService {
     }
 
     const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
-    const platformFee = Math.round(listing.price_cents * PLATFORM_FEE_PERCENT);
 
     let session: Stripe.Checkout.Session;
 
     if (listing.listing_type === 'one_time') {
-      // One-time purchase
-      session = await this.stripe.checkout.sessions.create(
-        {
-          mode: 'payment',
-          line_items: [
-            {
-              price_data: {
-                currency: listing.currency.toLowerCase(),
-                product_data: { name: listing.bot_name, metadata: { bot_id: listing.bot_id } },
-                unit_amount: listing.price_cents,
-              },
-              quantity: 1,
+      session = await this.stripe.checkout.sessions.create({
+        mode: 'payment',
+        line_items: [
+          {
+            price_data: {
+              currency: listing.currency.toLowerCase().trim(),
+              product_data: { name: listing.bot_name },
+              unit_amount: listing.price_cents,
             },
-          ],
-          payment_intent_data: {
-            application_fee_amount: platformFee,
-            metadata: {
-              user_id: userId,
-              bot_listing_id: botListingId,
-              listing_type: 'one_time',
-            },
+            quantity: 1,
           },
-          success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
-          client_reference_id: userId,
-          metadata: { user_id: userId, bot_listing_id: botListingId },
-        },
-        { stripeAccount: listing.stripe_account_id },
-      );
+        ],
+        success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
+        client_reference_id: userId,
+        metadata: { user_id: userId, bot_listing_id: botListingId },
+      });
     } else {
-      // Subscription (monthly or yearly)
-      if (!listing.stripe_price_id) {
-        throw new InternalServerErrorException(
-          'Stripe price not configured for this listing. Contact support.',
+      // For subscriptions we need a Stripe Price ID
+      // If not configured, create a price on the fly for testing
+      let priceId = listing.stripe_price_id;
+
+      if (!priceId) {
+        const price = await this.stripe.prices.create({
+          currency: listing.currency.toLowerCase().trim(),
+          unit_amount: listing.price_cents,
+          recurring: {
+            interval: listing.listing_type === 'subscription_yearly' ? 'year' : 'month',
+          },
+          product_data: { name: listing.bot_name },
+        });
+        priceId = price.id;
+
+        // Save the price ID for future use
+        await this.dataSource.query(
+          `UPDATE bot_listings SET stripe_price_id = $1 WHERE id = $2`,
+          [priceId, botListingId],
         );
       }
 
       const subscriptionData: Stripe.Checkout.SessionCreateParams.SubscriptionData = {
-        application_fee_percent: PLATFORM_FEE_PERCENT * 100,
         metadata: {
           user_id: userId,
           bot_listing_id: botListingId,
@@ -130,18 +115,15 @@ export class PaymentsService {
         subscriptionData.trial_period_days = listing.trial_days;
       }
 
-      session = await this.stripe.checkout.sessions.create(
-        {
-          mode: 'subscription',
-          line_items: [{ price: listing.stripe_price_id, quantity: 1 }],
-          subscription_data: subscriptionData,
-          success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
-          client_reference_id: userId,
-          metadata: { user_id: userId, bot_listing_id: botListingId },
-        },
-        { stripeAccount: listing.stripe_account_id },
-      );
+      session = await this.stripe.checkout.sessions.create({
+        mode: 'subscription',
+        line_items: [{ price: priceId, quantity: 1 }],
+        subscription_data: subscriptionData,
+        success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
+        client_reference_id: userId,
+        metadata: { user_id: userId, bot_listing_id: botListingId },
+      });
     }
 
     this.logger.log({
@@ -154,16 +136,6 @@ export class PaymentsService {
     return { checkoutUrl: session.url, sessionId: session.id };
   }
 
-  /**
-   * Handles Stripe webhook events.
-   * IMPORTANT: Must be called with the raw request body (Buffer) for signature verification.
-   *
-   * Handled events:
-   * - checkout.session.completed → create subscription + generate license key
-   * - invoice.paid               → renew subscription period
-   * - customer.subscription.deleted → cancel subscription + revoke license
-   * - invoice.payment_failed     → mark subscription as past_due
-   */
   async handleWebhook(rawBody: Buffer, signature: string): Promise<void> {
     const webhookSecret = this.config.getOrThrow<string>('STRIPE_WEBHOOK_SECRET');
 
@@ -195,8 +167,6 @@ export class PaymentsService {
     }
   }
 
-  // ─── Private handlers ───────────────────────────────────────────────────────
-
   private async handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
     const { user_id: userId, bot_listing_id: botListingId } = session.metadata || {};
     if (!userId || !botListingId) {
@@ -204,7 +174,6 @@ export class PaymentsService {
       return;
     }
 
-    // Use a transaction: create subscription + payment record + license atomically
     await this.dataSource.transaction(async (manager) => {
       const [listing] = await manager.query(
         `SELECT bl.id, bl.listing_type, bl.price_cents, bl.currency,
@@ -215,7 +184,6 @@ export class PaymentsService {
       );
       if (!listing) throw new Error(`Listing ${botListingId} not found`);
 
-      // Determine subscription end date
       const now = new Date();
       let periodEnd: Date | null = null;
       if (listing.listing_type === 'subscription_monthly') {
@@ -224,7 +192,6 @@ export class PaymentsService {
         periodEnd = new Date(now.getTime() + 365 * 24 * 3600 * 1000);
       }
 
-      // Create subscription record
       const stripeSubId = session.subscription as string | null;
       const [subscription] = await manager.query(
         `INSERT INTO subscriptions
@@ -232,22 +199,14 @@ export class PaymentsService {
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (user_id, bot_listing_id) WHERE status IN ('trialing','active') DO NOTHING
          RETURNING id`,
-        [
-          userId,
-          botListingId,
-          stripeSubId,
-          listing.listing_type === 'one_time' ? 'active' : 'active',
-          now,
-          periodEnd,
-        ],
+        [userId, botListingId, stripeSubId, 'active', now, periodEnd],
       );
 
       if (!subscription) {
-        this.logger.warn({ msg: 'Duplicate checkout — subscription already exists', userId, botListingId });
+        this.logger.warn({ msg: 'Duplicate checkout', userId, botListingId });
         return;
       }
 
-      // Create payment record
       const platformFee = Math.round(listing.price_cents * PLATFORM_FEE_PERCENT);
       await manager.query(
         `INSERT INTO payments
@@ -255,37 +214,23 @@ export class PaymentsService {
             seller_payout_cents, stripe_payment_intent_id, metadata)
          VALUES ($1, $2, 'succeeded', $3, $4, $5, $6, $7, $8)`,
         [
-          userId,
-          subscription.id,
-          listing.price_cents,
-          listing.currency,
-          platformFee,
-          listing.price_cents - platformFee,
+          userId, subscription.id, listing.price_cents, listing.currency,
+          platformFee, listing.price_cents - platformFee,
           session.payment_intent as string,
           JSON.stringify({ checkout_session_id: session.id }),
         ],
       );
 
-      // Generate license key and create license record
       await this.licensingService.createLicenseForSubscription(
-        manager,
-        subscription.id,
-        userId,
-        listing.bot_id,
+        manager, subscription.id, userId, listing.bot_id,
       );
 
-      this.logger.log({
-        msg: 'Checkout completed — subscription and license created',
-        userId,
-        botListingId,
-        subscriptionId: subscription.id,
-      });
+      this.logger.log({ msg: 'Checkout completed', userId, botListingId, subscriptionId: subscription.id });
     });
   }
 
   private async handleInvoicePaid(invoice: Stripe.Invoice): Promise<void> {
     if (!invoice.subscription) return;
-
     const subId = invoice.subscription as string;
     await this.dataSource.query(
       `UPDATE subscriptions
@@ -294,47 +239,35 @@ export class PaymentsService {
            current_period_end   = to_timestamp($2),
            updated_at = NOW()
        WHERE stripe_subscription_id = $3`,
-      [
-        (invoice.period_start),
-        (invoice.period_end),
-        subId,
-      ],
+      [invoice.period_start, invoice.period_end, subId],
     );
-
-    this.logger.log({ msg: 'Invoice paid — subscription renewed', stripeSubId: subId });
+    this.logger.log({ msg: 'Invoice paid', stripeSubId: subId });
   }
 
   private async handleSubscriptionCancelled(subscription: Stripe.Subscription): Promise<void> {
     await this.dataSource.transaction(async (manager) => {
-      // Mark subscription canceled
       const [sub] = await manager.query(
         `UPDATE subscriptions SET status = 'canceled', updated_at = NOW()
-         WHERE stripe_subscription_id = $1
-         RETURNING id`,
+         WHERE stripe_subscription_id = $1 RETURNING id`,
         [subscription.id],
       );
       if (!sub) return;
-
-      // Revoke associated license
       await manager.query(
         `UPDATE licenses SET status = 'revoked', updated_at = NOW()
          WHERE subscription_id = $1 AND status = 'active'`,
         [sub.id],
       );
     });
-
-    this.logger.log({ msg: 'Subscription cancelled — license revoked', stripeSubId: subscription.id });
+    this.logger.log({ msg: 'Subscription cancelled', stripeSubId: subscription.id });
   }
 
   private async handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     if (!invoice.subscription) return;
-
     await this.dataSource.query(
       `UPDATE subscriptions SET status = 'past_due', updated_at = NOW()
        WHERE stripe_subscription_id = $1`,
       [invoice.subscription as string],
     );
-
-    this.logger.warn({ msg: 'Payment failed — subscription past_due', stripeSubId: invoice.subscription });
+    this.logger.warn({ msg: 'Payment failed', stripeSubId: invoice.subscription });
   }
 }

@@ -70,8 +70,7 @@ export class UsersService {
     const rows = await this.dataSource.query(
       `SELECT role FROM user_roles
        WHERE user_id = $1
-         AND is_active = true
-         AND (expires_at IS NULL OR expires_at > NOW())`,
+         AND revoked_at IS NULL`,
       [userId],
     );
     return rows.map((r: { role: AppRole }) => r.role);
@@ -88,10 +87,10 @@ export class UsersService {
     expiresAt?: Date,
   ): Promise<void> {
     await this.dataSource.query(
-      `INSERT INTO user_roles (user_id, role, granted_by, expires_at, is_active)
+      `INSERT INTO user_roles (user_id, role, granted_by, expires_at)
        VALUES ($1, $2, $3, $4, true)
        ON CONFLICT (user_id, role) DO UPDATE
-         SET is_active = true,
+         SET revoked_at IS NULL,
              granted_by = EXCLUDED.granted_by,
              expires_at = EXCLUDED.expires_at,
              updated_at = NOW()`,
@@ -100,11 +99,11 @@ export class UsersService {
   }
 
   /**
-   * Revokes a role. Soft-revoke: sets is_active = false, preserves audit trail.
+   * Revokes a role. Soft-revoke: sets revoked_at IS NOT NULL, preserves audit trail.
    */
   async revokeRole(userId: string, role: AppRole): Promise<void> {
     await this.dataSource.query(
-      `UPDATE user_roles SET is_active = false, updated_at = NOW()
+      `UPDATE user_roles SET revoked_at IS NOT NULL, updated_at = NOW()
        WHERE user_id = $1 AND role = $2`,
       [userId, role],
     );
@@ -115,7 +114,7 @@ export class UsersService {
       `SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes
        FROM api_keys ak
        WHERE ak.key_hash = $1
-         AND ak.is_active = true
+         AND ak.revoked_at IS NULL
          AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`,
       [keyHash],
     );
@@ -123,3 +122,4 @@ export class UsersService {
     return { userId: result[0].userId, keyId: result[0].keyId, scopes: result[0].scopes || [] };
   }
 }
+

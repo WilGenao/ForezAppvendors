@@ -86,8 +86,8 @@ export const subscriptionsApi = {
 
 // ─── Payments ────────────────────────────────────────────────────────────────
 export const paymentsApi = {
-  createCheckout: (botListingId: string, listingType: string) =>
-    api.post('/payments/checkout', { botListingId, listingType }),
+  createCheckout: (data: { botListingId: string; listingType: string }) =>
+    api.post('/payments/checkout', data),
 };
 
 // ─── Reviews ─────────────────────────────────────────────────────────────────
@@ -125,3 +125,4 @@ export const adminApi = {
   suspendUser: (id: string) => api.patch(`/admin/users/${id}/suspend`),
   activateUser: (id: string) => api.patch(`/admin/users/${id}/activate`),
 };
+

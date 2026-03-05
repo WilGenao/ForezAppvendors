@@ -60,28 +60,27 @@ let UsersService = class UsersService {
     async getRolesForUser(userId) {
         const rows = await this.dataSource.query(`SELECT role FROM user_roles
        WHERE user_id = $1
-         AND is_active = true
-         AND (expires_at IS NULL OR expires_at > NOW())`, [userId]);
+         AND revoked_at IS NULL`, [userId]);
         return rows.map((r) => r.role);
     }
     async assignRole(userId, role, grantedBy, expiresAt) {
-        await this.dataSource.query(`INSERT INTO user_roles (user_id, role, granted_by, expires_at, is_active)
+        await this.dataSource.query(`INSERT INTO user_roles (user_id, role, granted_by, expires_at)
        VALUES ($1, $2, $3, $4, true)
        ON CONFLICT (user_id, role) DO UPDATE
-         SET is_active = true,
+         SET revoked_at IS NULL,
              granted_by = EXCLUDED.granted_by,
              expires_at = EXCLUDED.expires_at,
              updated_at = NOW()`, [userId, role, grantedBy ?? null, expiresAt ?? null]);
     }
     async revokeRole(userId, role) {
-        await this.dataSource.query(`UPDATE user_roles SET is_active = false, updated_at = NOW()
+        await this.dataSource.query(`UPDATE user_roles SET revoked_at IS NOT NULL, updated_at = NOW()
        WHERE user_id = $1 AND role = $2`, [userId, role]);
     }
     async findActiveApiKey(keyHash) {
         const result = await this.dataSource.query(`SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes
        FROM api_keys ak
        WHERE ak.key_hash = $1
-         AND ak.is_active = true
+         AND ak.revoked_at IS NULL
          AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`, [keyHash]);
         if (!result.length)
             return null;

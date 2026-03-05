@@ -41,7 +41,7 @@ const DISCOUNT: Record<string, number> = {
 // Using a typed placeholder until API integration is complete.
 const MOCK_BOT = {
   id: '1',
-  listingId: 'listing-uuid-replace-me',
+  listingId: '0e033741-b04a-4c0c-a3c2-d20841db05b6',
   name: 'EuroScalper.Pro',
   seller: 'AlgoTrader Labs',
   platform: 'MT5',
@@ -334,3 +334,4 @@ export default function CheckoutPage() {
     </Suspense>
   );
 }
+

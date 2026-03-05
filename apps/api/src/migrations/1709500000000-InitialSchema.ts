@@ -339,7 +339,7 @@ export class InitialSchema1709500000000 implements MigrationInterface {
 
     // Indexes
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id) WHERE is_active = TRUE`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id) WHERE revoked_at IS NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_bots_seller ON bots(seller_id) WHERE deleted_at IS NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_bots_status ON bots(status) WHERE deleted_at IS NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_licenses_key ON licenses(license_key)`);
@@ -421,3 +421,4 @@ export class InitialSchema1709500000000 implements MigrationInterface {
     }
   }
 }
+
