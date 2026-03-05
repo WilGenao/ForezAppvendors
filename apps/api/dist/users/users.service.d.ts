@@ -1,9 +1,12 @@
 import { Repository } from 'typeorm';
+import { DataSource } from 'typeorm';
 import { User } from './entities/user.entity';
 import { ApiKeyPayload } from '../common/decorators/api-key-user.decorator';
+import { AppRole } from '../common/decorators/roles.decorator';
 export declare class UsersService {
     private readonly userRepo;
-    constructor(userRepo: Repository<User>);
+    private readonly dataSource;
+    constructor(userRepo: Repository<User>, dataSource: DataSource);
     create(input: {
         email: string;
         passwordHash: string;
@@ -13,5 +16,10 @@ export declare class UsersService {
     updateLastLogin(id: string, ip: string): Promise<void>;
     storeTotpSecret(id: string, secret: string): Promise<void>;
     enableTotp(id: string): Promise<void>;
+    markEmailVerified(id: string): Promise<void>;
+    updatePassword(id: string, passwordHash: string): Promise<void>;
+    getRolesForUser(userId: string): Promise<AppRole[]>;
+    assignRole(userId: string, role: AppRole, grantedBy?: string, expiresAt?: Date): Promise<void>;
+    revokeRole(userId: string, role: AppRole): Promise<void>;
     findActiveApiKey(keyHash: string): Promise<ApiKeyPayload | null>;
 }

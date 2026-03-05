@@ -27,13 +27,13 @@ export declare class LicensingService {
     private readonly RATE_LIMIT_WINDOW_SECONDS;
     private readonly MAX_VALIDATIONS_PER_MINUTE;
     constructor(licenseRepo: Repository<License>, redis: Redis, dataSource: DataSource);
+    createLicenseForSubscription(manager: EntityManager, subscriptionId: string, userId: string, botId: string): Promise<string>;
     validate(dto: ValidateLicenseDto, ip: string): Promise<ValidationResult>;
+    generateLicenseKey(subscriptionId: string, userId: string, botId: string, botVersionId: string): Promise<License>;
+    revokeLicense(licenseId: string): Promise<void>;
     private evaluateLicense;
     private getCachedValidation;
     private cacheValidation;
     private logValidationAsync;
     private registerHwidAsync;
-    generateLicenseKey(subscriptionId: string, userId: string, botId: string, botVersionId: string): Promise<License>;
-    revokeLicense(licenseId: string, reason: string): Promise<void>;
-    createLicenseForSubscription(manager: EntityManager, subscriptionId: string, userId: string, botId: string): Promise<string>;
 }

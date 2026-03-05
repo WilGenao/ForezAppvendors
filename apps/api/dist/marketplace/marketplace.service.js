@@ -30,16 +30,12 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
     }
     async createBot(userId, dto) {
         const sellerProfile = await this.dataSource.query(`SELECT id FROM seller_profiles WHERE user_id = $1 LIMIT 1`, [userId]);
-        if (!sellerProfile.length)
+        if (!sellerProfile.length) {
             throw new common_1.ForbiddenException('You must have a seller profile to create bots');
+        }
         const sellerId = sellerProfile[0].id;
         const slug = this.generateSlug(dto.name);
-        const bot = this.botRepo.create({
-            ...dto,
-            sellerId,
-            slug,
-            status: 'draft',
-        });
+        const bot = this.botRepo.create({ ...dto, sellerId, slug, status: 'draft' });
         return this.botRepo.save(bot);
     }
     async listPublicBots(query) {
@@ -47,24 +43,25 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         const cached = await this.redis.get(cacheKey);
         if (cached)
             return JSON.parse(cached);
-        let whereClause = '1=1';
+        const conditions = ['1=1'];
         const params = [];
         let paramIndex = 1;
         if (query.search) {
-            whereClause += ` AND (bot_name ILIKE $${paramIndex} OR similarity(bot_name, $${paramIndex}) > 0.2)`;
-            params.push(`%${query.search}%`);
-            paramIndex++;
+            conditions.push(`(bot_name ILIKE $${paramIndex} OR similarity(bot_name, $${paramIndex + 1}) > 0.2)`);
+            params.push(`%${query.search}%`, query.search);
+            paramIndex += 2;
         }
         if (query.mtPlatform) {
-            whereClause += ` AND mt_platform IN ($${paramIndex}, 'BOTH')`;
+            conditions.push(`mt_platform IN ($${paramIndex}, 'BOTH')`);
             params.push(query.mtPlatform);
             paramIndex++;
         }
         if (query.categoryId) {
-            whereClause += ` AND category_id = $${paramIndex}`;
+            conditions.push(`category_id = $${paramIndex}`);
             params.push(query.categoryId);
             paramIndex++;
         }
+        const whereClause = conditions.join(' AND ');
         const sortMap = {
             rating: 'avg_rating DESC NULLS LAST',
             subscribers: 'total_subscribers DESC',
@@ -72,33 +69,20 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
             price_desc: 'price_cents DESC',
             newest: 'published_at DESC',
         };
-        const sortBy = sortMap[query.sortBy || 'rating'];
-        const offset = ((query.page || 1) - 1) * (query.limit || 20);
-        const sql = `
-      SELECT *
-      FROM v_active_bot_listings
-      WHERE ${whereClause}
-      ORDER BY ${sortBy}
-      LIMIT $${paramIndex}
-      OFFSET $${paramIndex + 1}
-    `;
-        const finalParams = [...params, query.limit || 20, offset];
-        const countSql = `
-      SELECT COUNT(*) 
-      FROM v_active_bot_listings
-      WHERE ${whereClause}
-    `;
+        const orderBy = sortMap[query.sortBy || 'rating'] ?? sortMap['rating'];
+        const page = Math.max(1, query.page || 1);
+        const limit = Math.min(100, Math.max(1, query.limit || 20));
+        const offset = (page - 1) * limit;
+        const resultParams = [...params, limit, offset];
         const [results, countResult] = await Promise.all([
-            this.dataSource.query(sql, finalParams),
-            this.dataSource.query(countSql, params),
+            this.dataSource.query(`SELECT * FROM v_active_bot_listings WHERE ${whereClause} ORDER BY ${orderBy} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, resultParams),
+            this.dataSource.query(`SELECT COUNT(*) FROM v_active_bot_listings WHERE ${whereClause}`, params),
         ]);
-        const total = parseInt(countResult[0].count, 10);
         const response = {
             data: results,
-            total,
-            page: query.page || 1,
-            limit: query.limit || 20,
-            totalPages: Math.ceil(total / (query.limit || 20)),
+            total: parseInt(countResult[0].count, 10),
+            page,
+            limit,
         };
         await this.redis.setex(cacheKey, this.LISTING_CACHE_TTL, JSON.stringify(response));
         return response;
@@ -108,19 +92,64 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         const cached = await this.redis.get(cacheKey);
         if (cached)
             return JSON.parse(cached);
-        const [bot] = await this.dataSource.query(`SELECT * FROM bots WHERE slug = $1 AND status = 'active' AND deleted_at IS NULL`, [slug]);
+        const [bot] = await this.dataSource.query(`SELECT
+         b.*,
+         sp.display_name   AS seller_name,
+         sp.is_verified_seller,
+         sp.avg_rating      AS seller_rating,
+         ps.sharpe_ratio,
+         ps.win_rate,
+         ps.max_drawdown_pct,
+         ps.profit_factor,
+         ps.total_trades,
+         ps.expectancy_usd,
+         ps.calmar_ratio,
+         ps.sortino_ratio,
+         COALESCE(
+           json_agg(DISTINCT jsonb_build_object(
+             'type',         bl.listing_type,
+             'price_cents',  bl.price_cents,
+             'listing_id',   bl.id,
+             'trial_days',   bl.trial_days
+           )) FILTER (WHERE bl.id IS NOT NULL),
+           '[]'
+         ) AS listings,
+         COALESCE(
+           json_agg(DISTINCT jsonb_build_object(
+             'type',        af.anomaly_type,
+             'severity',    af.severity,
+             'description', af.description
+           )) FILTER (WHERE af.id IS NOT NULL AND af.is_resolved = FALSE),
+           '[]'
+         ) AS anomalies
+       FROM bots b
+       JOIN seller_profiles sp ON sp.id = b.seller_id
+       LEFT JOIN performance_snapshots ps
+           ON ps.bot_id = b.id
+           AND ps.period_type = 'all_time'
+           AND ps.snapshot_date = (
+             SELECT MAX(snapshot_date)
+             FROM performance_snapshots
+             WHERE bot_id = b.id AND period_type = 'all_time'
+           )
+       LEFT JOIN bot_listings bl
+           ON bl.bot_id = b.id AND bl.status = 'published' AND bl.deleted_at IS NULL
+       LEFT JOIN anomaly_flags af ON af.bot_id = b.id
+       WHERE b.slug = $1 AND b.status = 'active' AND b.deleted_at IS NULL
+       GROUP BY b.id, sp.display_name, sp.is_verified_seller, sp.avg_rating,
+                ps.sharpe_ratio, ps.win_rate, ps.max_drawdown_pct, ps.profit_factor,
+                ps.total_trades, ps.expectancy_usd, ps.calmar_ratio, ps.sortino_ratio`, [slug]);
         if (!bot)
             throw new common_1.NotFoundException('Bot not found');
-        await this.redis.setex(cacheKey, this.LISTING_CACHE_TTL, JSON.stringify(bot));
+        await this.redis.setex(cacheKey, 300, JSON.stringify(bot));
         return bot;
     }
     generateSlug(name) {
-        return (name
+        return name
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
-            .replace(/(^-|-$)/g, '') +
-            '-' +
-            Date.now().toString(36));
+            .replace(/(^-|-$)/g, '')
+            .slice(0, 80);
     }
 };
 exports.MarketplaceService = MarketplaceService;

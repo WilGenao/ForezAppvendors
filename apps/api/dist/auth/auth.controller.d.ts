@@ -1,3 +1,4 @@
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -10,20 +11,17 @@ export declare class AuthController {
     register(dto: RegisterDto): Promise<{
         message: string;
     }>;
-    login(dto: LoginDto, ip: string): Promise<{
+    login(dto: LoginDto, req: Request): Promise<{
         accessToken: string;
         refreshToken: string;
         tokenType: string;
     }>;
-    refresh(_dto: RefreshTokenDto, req: Request & {
-        user: JwtPayload & {
-            refreshToken: string;
-        };
-    }): Promise<{
+    refresh(dto: RefreshTokenDto): Promise<{
         accessToken: string;
         refreshToken: string;
         tokenType: string;
     }>;
+    logout(user: JwtPayload, dto: RefreshTokenDto): Promise<void>;
     setup2FA(user: JwtPayload): Promise<{
         secret: string;
         qrCodeUrl: string;

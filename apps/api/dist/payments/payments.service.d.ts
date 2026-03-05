@@ -1,14 +1,22 @@
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import { Payment } from './entities/payment.entity';
+import { LicensingService } from '../licensing/licensing.service';
 export declare class PaymentsService {
     private readonly paymentRepo;
     private readonly config;
+    private readonly dataSource;
+    private readonly licensingService;
     private readonly logger;
     private readonly stripe;
-    constructor(paymentRepo: Repository<Payment>, config: ConfigService);
+    constructor(paymentRepo: Repository<Payment>, config: ConfigService, dataSource: DataSource, licensingService: LicensingService);
     createCheckoutSession(userId: string, botListingId: string, listingType: string): Promise<{
-        url: string;
+        checkoutUrl: string;
+        sessionId: string;
     }>;
     handleWebhook(rawBody: Buffer, signature: string): Promise<void>;
+    private handleCheckoutCompleted;
+    private handleInvoicePaid;
+    private handleSubscriptionCancelled;
+    private handlePaymentFailed;
 }

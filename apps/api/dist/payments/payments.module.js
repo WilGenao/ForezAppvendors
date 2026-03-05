@@ -18,9 +18,13 @@ let PaymentsModule = class PaymentsModule {
 exports.PaymentsModule = PaymentsModule;
 exports.PaymentsModule = PaymentsModule = __decorate([
     (0, common_1.Module)({
-        imports: [typeorm_1.TypeOrmModule.forFeature([payment_entity_1.Payment]), licensing_module_1.LicensingModule],
+        imports: [
+            typeorm_1.TypeOrmModule.forFeature([payment_entity_1.Payment]),
+            licensing_module_1.LicensingModule,
+        ],
         controllers: [payments_controller_1.PaymentsController],
         providers: [payments_service_1.PaymentsService],
+        exports: [payments_service_1.PaymentsService],
     })
 ], PaymentsModule);
 //# sourceMappingURL=payments.module.js.map

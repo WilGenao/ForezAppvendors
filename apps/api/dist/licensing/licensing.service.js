@@ -40,6 +40,16 @@ let LicensingService = LicensingService_1 = class LicensingService {
         this.RATE_LIMIT_WINDOW_SECONDS = 60;
         this.MAX_VALIDATIONS_PER_MINUTE = 10;
     }
+    async createLicenseForSubscription(manager, subscriptionId, userId, botId) {
+        const [botVersion] = await manager.query(`SELECT id FROM bot_versions WHERE bot_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1`, [botId]);
+        const botVersionId = botVersion?.id ?? null;
+        const licenseKey = `LK-${(0, crypto_1.randomBytes)(16).toString('hex').toUpperCase()}`;
+        await manager.query(`INSERT INTO licenses
+         (subscription_id, user_id, bot_id, bot_version_id, license_key, status, max_activations, current_activations)
+       VALUES ($1, $2, $3, $4, $5, 'active', 1, 0)`, [subscriptionId, userId, botId, botVersionId, licenseKey]);
+        this.logger.log({ msg: 'License created', userId, botId, licenseKey: `${licenseKey.slice(0, 8)}...` });
+        return licenseKey;
+    }
     async validate(dto, ip) {
         const startMs = Date.now();
         const rateLimitKey = `rl:license:${dto.licenseKey}`;
@@ -66,6 +76,25 @@ let LicensingService = LicensingService_1 = class LicensingService {
             this.registerHwidAsync(license, dto.hwidHash);
         }
         return result;
+    }
+    async generateLicenseKey(subscriptionId, userId, botId, botVersionId) {
+        const licenseKey = `LK-${(0, crypto_1.randomBytes)(16).toString('hex').toUpperCase()}`;
+        const license = this.licenseRepo.create({
+            subscriptionId,
+            userId,
+            botId,
+            botVersionId,
+            licenseKey,
+            status: 'active',
+        });
+        return this.licenseRepo.save(license);
+    }
+    async revokeLicense(licenseId) {
+        await this.licenseRepo.update(licenseId, { status: 'revoked' });
+        const license = await this.licenseRepo.findOne({ where: { id: licenseId } });
+        if (license) {
+            await this.redis.del(`license:validation:${license.licenseKey}`);
+        }
     }
     evaluateLicense(license, dto) {
         if (!license) {
@@ -114,9 +143,18 @@ let LicensingService = LicensingService_1 = class LicensingService {
                 const license = await this.licenseRepo.findOne({ where: { licenseKey: dto.licenseKey } });
                 if (!license)
                     return;
-                await this.dataSource.query(`INSERT INTO license_validations 
-           (license_id, is_valid, hwid_hash, ip_address, mt_account_id, mt_platform, response_code, response_ms)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [license.id, result.isValid, dto.hwidHash, ip, dto.mtAccountId, dto.mtPlatform, result.code, responseMs]);
+                await this.dataSource.query(`INSERT INTO license_validations
+             (license_id, is_valid, hwid_hash, ip_address, mt_account_id, mt_platform, response_code, response_ms)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
+                    license.id,
+                    result.isValid,
+                    dto.hwidHash,
+                    ip,
+                    dto.mtAccountId,
+                    dto.mtPlatform,
+                    result.code,
+                    responseMs,
+                ]);
                 await this.licenseRepo.update(license.id, { lastValidatedAt: new Date() });
             }
             catch (err) {
@@ -142,51 +180,6 @@ let LicensingService = LicensingService_1 = class LicensingService {
                 this.logger.error({ msg: 'Failed to register HWID', licenseId: license.id, err });
             }
         });
-    }
-    async generateLicenseKey(subscriptionId, userId, botId, botVersionId) {
-        const licenseKey = `LK-${(0, crypto_1.randomBytes)(16).toString('hex').toUpperCase()}`;
-        const license = this.licenseRepo.create({
-            subscriptionId,
-            userId,
-            botId,
-            botVersionId,
-            licenseKey,
-            status: 'active',
-        });
-        return this.licenseRepo.save(license);
-    }
-    async revokeLicense(licenseId, reason) {
-        await this.licenseRepo.update(licenseId, { status: 'revoked' });
-        const license = await this.licenseRepo.findOne({ where: { id: licenseId } });
-        if (license)
-            await this.redis.del(`license:validation:${license.licenseKey}`);
-    }
-    async createLicenseForSubscription(manager, subscriptionId, userId, botId) {
-        const [botVersion] = await manager.query(`SELECT id 
-       FROM bot_versions 
-       WHERE bot_id = $1 
-         AND is_active = true 
-       ORDER BY created_at DESC 
-       LIMIT 1`, [botId]);
-        const botVersionId = botVersion?.id ?? null;
-        const licenseKey = `LK-${(0, crypto_1.randomBytes)(16)
-            .toString('hex')
-            .toUpperCase()}`;
-        await manager.query(`INSERT INTO licenses
-        (subscription_id, user_id, bot_id, bot_version_id, license_key, status, max_activations, current_activations)
-       VALUES ($1, $2, $3, $4, $5, 'active', 1, 0)`, [
-            subscriptionId,
-            userId,
-            botId,
-            botVersionId,
-            licenseKey,
-        ]);
-        this.logger.log({
-            msg: 'License created from subscription',
-            userId,
-            botId,
-        });
-        return licenseKey;
     }
 };
 exports.LicensingService = LicensingService;

@@ -55,7 +55,10 @@ let AuthService = AuthService_1 = class AuthService {
             if (!dto.totpCode)
                 throw new common_1.UnauthorizedException('2FA code required');
             const valid = speakeasy.totp.verify({
-                secret: user.totpSecret, encoding: 'base32', token: dto.totpCode, window: 1,
+                secret: user.totpSecret,
+                encoding: 'base32',
+                token: dto.totpCode,
+                window: 1,
             });
             if (!valid)
                 throw new common_1.UnauthorizedException('Invalid 2FA code');
@@ -74,7 +77,10 @@ let AuthService = AuthService_1 = class AuthService {
         if (!user.totpSecret)
             throw new common_1.BadRequestException('2FA setup not initiated');
         const valid = speakeasy.totp.verify({
-            secret: user.totpSecret, encoding: 'base32', token: totpCode, window: 1,
+            secret: user.totpSecret,
+            encoding: 'base32',
+            token: totpCode,
+            window: 1,
         });
         if (!valid)
             throw new common_1.BadRequestException('Invalid TOTP code');
@@ -89,8 +95,9 @@ let AuthService = AuthService_1 = class AuthService {
         catch {
             throw new common_1.UnauthorizedException('Invalid refresh token');
         }
-        if (!payload?.jti || payload.sub !== userId)
+        if (!payload?.jti || payload.sub !== userId) {
             throw new common_1.UnauthorizedException('Invalid refresh token');
+        }
         try {
             await this.jwtService.verifyAsync(incomingRefreshToken, {
                 secret: this.config.getOrThrow('JWT_REFRESH_SECRET'),
@@ -101,8 +108,9 @@ let AuthService = AuthService_1 = class AuthService {
         }
         const redisKey = `${REFRESH_TOKEN_PREFIX}:${userId}:${payload.jti}`;
         const storedHash = await this.redis.get(redisKey);
-        if (!storedHash)
+        if (!storedHash) {
             throw new common_1.UnauthorizedException('Refresh token has been revoked or expired');
+        }
         const incomingHash = (0, crypto_1.createHash)('sha256').update(incomingRefreshToken).digest('hex');
         if (incomingHash !== storedHash) {
             this.logger.warn({ msg: 'Refresh token hash mismatch — possible token theft', userId });
@@ -118,10 +126,12 @@ let AuthService = AuthService_1 = class AuthService {
     async logout(userId, refreshToken) {
         try {
             const payload = this.jwtService.decode(refreshToken);
-            if (payload?.jti)
+            if (payload?.jti) {
                 await this.redis.del(`${REFRESH_TOKEN_PREFIX}:${userId}:${payload.jti}`);
+            }
         }
-        catch { }
+        catch {
+        }
     }
     async validateApiKey(rawKey) {
         const keyHash = (0, crypto_1.createHash)('sha256').update(rawKey).digest('hex');
@@ -133,8 +143,9 @@ let AuthService = AuthService_1 = class AuthService {
         do {
             const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
             cursor = nextCursor;
-            if (keys.length > 0)
+            if (keys.length > 0) {
                 await this.redis.del(...keys);
+            }
         } while (cursor !== '0');
     }
     async generateTokenPair(userId, email, roles) {
@@ -158,8 +169,9 @@ let AuthService = AuthService_1 = class AuthService {
         if (!match)
             return 7 * 24 * 3600;
         const value = parseInt(match[1], 10);
+        const unit = match[2];
         const multipliers = { s: 1, m: 60, h: 3600, d: 86400 };
-        return value * multipliers[match[2]];
+        return value * multipliers[unit];
     }
 };
 exports.AuthService = AuthService;

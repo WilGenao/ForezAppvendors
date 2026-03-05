@@ -16,19 +16,31 @@ exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
+const typeorm_3 = require("typeorm");
 const user_entity_1 = require("./entities/user.entity");
 let UsersService = class UsersService {
-    constructor(userRepo) {
+    constructor(userRepo, dataSource) {
         this.userRepo = userRepo;
+        this.dataSource = dataSource;
     }
     async create(input) {
-        return this.userRepo.save(this.userRepo.create({ email: input.email, passwordHash: input.passwordHash, status: 'pending_verification' }));
+        const user = await this.userRepo.save(this.userRepo.create({
+            email: input.email,
+            passwordHash: input.passwordHash,
+            status: 'pending_verification',
+        }));
+        await this.assignRole(user.id, 'buyer');
+        return user;
     }
     async findById(id) {
         return this.userRepo.findOne({ where: { id } });
     }
     async findByEmail(email) {
-        return this.userRepo.createQueryBuilder('u').addSelect('u.totpSecret').where('u.email = :email', { email }).getOne();
+        return this.userRepo
+            .createQueryBuilder('u')
+            .addSelect('u.totpSecret')
+            .where('u.email = :email', { email })
+            .getOne();
     }
     async updateLastLogin(id, ip) {
         await this.userRepo.update(id, { lastLoginAt: new Date(), lastLoginIp: ip });
@@ -39,8 +51,38 @@ let UsersService = class UsersService {
     async enableTotp(id) {
         await this.userRepo.update(id, { totpEnabled: true });
     }
+    async markEmailVerified(id) {
+        await this.userRepo.update(id, { emailVerifiedAt: new Date(), status: 'active' });
+    }
+    async updatePassword(id, passwordHash) {
+        await this.userRepo.update(id, { passwordHash });
+    }
+    async getRolesForUser(userId) {
+        const rows = await this.dataSource.query(`SELECT role FROM user_roles
+       WHERE user_id = $1
+         AND is_active = true
+         AND (expires_at IS NULL OR expires_at > NOW())`, [userId]);
+        return rows.map((r) => r.role);
+    }
+    async assignRole(userId, role, grantedBy, expiresAt) {
+        await this.dataSource.query(`INSERT INTO user_roles (user_id, role, granted_by, expires_at, is_active)
+       VALUES ($1, $2, $3, $4, true)
+       ON CONFLICT (user_id, role) DO UPDATE
+         SET is_active = true,
+             granted_by = EXCLUDED.granted_by,
+             expires_at = EXCLUDED.expires_at,
+             updated_at = NOW()`, [userId, role, grantedBy ?? null, expiresAt ?? null]);
+    }
+    async revokeRole(userId, role) {
+        await this.dataSource.query(`UPDATE user_roles SET is_active = false, updated_at = NOW()
+       WHERE user_id = $1 AND role = $2`, [userId, role]);
+    }
     async findActiveApiKey(keyHash) {
-        const result = await this.userRepo.query(`SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes FROM api_keys ak WHERE ak.key_hash = $1 AND ak.is_active = true AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`, [keyHash]);
+        const result = await this.dataSource.query(`SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes
+       FROM api_keys ak
+       WHERE ak.key_hash = $1
+         AND ak.is_active = true
+         AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`, [keyHash]);
         if (!result.length)
             return null;
         return { userId: result[0].userId, keyId: result[0].keyId, scopes: result[0].scopes || [] };
@@ -50,6 +92,7 @@ exports.UsersService = UsersService;
 exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
-    __metadata("design:paramtypes", [typeorm_2.Repository])
+    __metadata("design:paramtypes", [typeorm_2.Repository,
+        typeorm_3.DataSource])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map
