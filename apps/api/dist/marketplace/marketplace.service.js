@@ -34,9 +34,20 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
             throw new common_1.ForbiddenException('You must have a seller profile to create bots');
         }
         const sellerId = sellerProfile[0].id;
-        const slug = this.generateSlug(dto.name);
+        const slug = this.generateSlug(dto.name) + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
         const bot = this.botRepo.create({ ...dto, sellerId, slug, status: 'draft' });
         return this.botRepo.save(bot);
+    }
+    async createListing(userId, botId, dto) {
+        const [bot] = await this.dataSource.query(`SELECT b.id FROM bots b JOIN seller_profiles sp ON sp.id = b.seller_id WHERE b.id = $1 AND sp.user_id = $2 LIMIT 1`, [botId, userId]);
+        if (!bot)
+            throw new common_1.ForbiddenException('Bot not found or not yours');
+        const [version] = await this.dataSource.query(`SELECT id FROM bot_versions WHERE bot_id = $1 ORDER BY created_at DESC LIMIT 1`, [botId]);
+        if (!version)
+            throw new common_1.ForbiddenException('Upload a bot file first');
+        const [listing] = await this.dataSource.query(`INSERT INTO bot_listings (bot_id, bot_version_id, listing_type, status, price_cents, currency, trial_days)
+       VALUES ($1, $2, $3, 'pending_review', $4, 'USD', $5) RETURNING id, status`, [botId, version.id, dto.listingType, dto.priceCents, dto.trialDays ?? 0]);
+        return listing;
     }
     async listPublicBots(query) {
         const cacheKey = `marketplace:list:${JSON.stringify(query)}`;

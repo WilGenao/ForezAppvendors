@@ -8,4 +8,9 @@ export declare class MarketplaceController {
     listBots(query: ListBotsQueryDto): Promise<any>;
     getBotDetails(slug: string): Promise<any>;
     createBot(user: JwtPayload, dto: CreateBotDto): Promise<import("./entities/bot.entity").Bot>;
+    createListing(user: JwtPayload, botId: string, dto: {
+        listingType: string;
+        priceCents: number;
+        trialDays: number;
+    }): Promise<any>;
 }

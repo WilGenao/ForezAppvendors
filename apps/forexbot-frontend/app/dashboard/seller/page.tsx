@@ -211,7 +211,7 @@ export default function SellerDashboardPage() {
         <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-[#30363d]">
             <span className="text-[10px] text-gray-500 uppercase tracking-widest">My Bots</span>
-            <Link href="/dashboard/seller/new-bot" className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-bold transition-colors">
+            <Link href="/seller/upload" className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-500 rounded text-xs font-bold transition-colors">
               <Plus className="w-3 h-3" /> New Bot
             </Link>
           </div>
@@ -302,3 +302,4 @@ export default function SellerDashboardPage() {
     </div>
   );
 }
+

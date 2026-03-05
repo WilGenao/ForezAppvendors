@@ -10,7 +10,7 @@ import Redis from 'ioredis';
 @Injectable()
 export class MarketplaceService {
   private readonly logger = new Logger(MarketplaceService.name);
-  private readonly LISTING_CACHE_TTL = 60; // 1 minute for public listings
+  private readonly LISTING_CACHE_TTL = 60;
 
   constructor(
     @InjectRepository(Bot) private readonly botRepo: Repository<Bot>,
@@ -27,9 +27,30 @@ export class MarketplaceService {
       throw new ForbiddenException('You must have a seller profile to create bots');
     }
     const sellerId = sellerProfile[0].id;
-    const slug = this.generateSlug(dto.name);
+    const slug = this.generateSlug(dto.name) + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
     const bot = this.botRepo.create({ ...dto, sellerId, slug, status: 'draft' });
     return this.botRepo.save(bot);
+  }
+
+  async createListing(userId: string, botId: string, dto: { listingType: string; priceCents: number; trialDays: number }) {
+    const [bot] = await this.dataSource.query(
+      `SELECT b.id FROM bots b JOIN seller_profiles sp ON sp.id = b.seller_id WHERE b.id = $1 AND sp.user_id = $2 LIMIT 1`,
+      [botId, userId],
+    );
+    if (!bot) throw new ForbiddenException('Bot not found or not yours');
+
+    const [version] = await this.dataSource.query(
+      `SELECT id FROM bot_versions WHERE bot_id = $1 ORDER BY created_at DESC LIMIT 1`,
+      [botId],
+    );
+    if (!version) throw new ForbiddenException('Upload a bot file first');
+
+    const [listing] = await this.dataSource.query(
+      `INSERT INTO bot_listings (bot_id, bot_version_id, listing_type, status, price_cents, currency, trial_days)
+       VALUES ($1, $2, $3, 'pending_review', $4, 'USD', $5) RETURNING id, status`,
+      [botId, version.id, dto.listingType, dto.priceCents, dto.trialDays ?? 0],
+    );
+    return listing;
   }
 
   async listPublicBots(query: ListBotsQueryDto) {
@@ -37,8 +58,6 @@ export class MarketplaceService {
     const cached = await this.redis.get(cacheKey);
     if (cached) return JSON.parse(cached);
 
-    // Build WHERE clause shared by both result and count queries
-    // FIX: count query now uses the same filters as the result query (was always returning full count)
     const conditions: string[] = ['1=1'];
     const params: unknown[] = [];
     let paramIndex = 1;
@@ -63,7 +82,6 @@ export class MarketplaceService {
 
     const whereClause = conditions.join(' AND ');
 
-    // Whitelist sort options to prevent SQL injection
     const sortMap: Record<string, string> = {
       rating: 'avg_rating DESC NULLS LAST',
       subscribers: 'total_subscribers DESC',
@@ -84,7 +102,6 @@ export class MarketplaceService {
         `SELECT * FROM v_active_bot_listings WHERE ${whereClause} ORDER BY ${orderBy} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`,
         resultParams,
       ),
-      // FIX: Count uses the same WHERE clause and the same params (not the full table)
       this.dataSource.query(
         `SELECT COUNT(*) FROM v_active_bot_listings WHERE ${whereClause}`,
         params,

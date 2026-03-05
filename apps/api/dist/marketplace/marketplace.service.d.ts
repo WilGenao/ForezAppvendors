@@ -11,6 +11,11 @@ export declare class MarketplaceService {
     private readonly LISTING_CACHE_TTL;
     constructor(botRepo: Repository<Bot>, redis: Redis, dataSource: DataSource);
     createBot(userId: string, dto: CreateBotDto): Promise<Bot>;
+    createListing(userId: string, botId: string, dto: {
+        listingType: string;
+        priceCents: number;
+        trialDays: number;
+    }): Promise<any>;
     listPublicBots(query: ListBotsQueryDto): Promise<any>;
     getBotDetails(slug: string): Promise<any>;
     private generateSlug;

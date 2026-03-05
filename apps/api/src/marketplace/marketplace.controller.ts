@@ -12,15 +12,30 @@ export class MarketplaceController {
   constructor(private readonly marketplaceService: MarketplaceService) {}
 
   @Get('bots')
-  listBots(@Query() query: ListBotsQueryDto) { return this.marketplaceService.listPublicBots(query); }
+  listBots(@Query() query: ListBotsQueryDto) {
+    return this.marketplaceService.listPublicBots(query);
+  }
 
   @Get('bots/:slug')
-  getBotDetails(@Param('slug') slug: string) { return this.marketplaceService.getBotDetails(slug); }
+  getBotDetails(@Param('slug') slug: string) {
+    return this.marketplaceService.getBotDetails(slug);
+  }
 
   @ApiBearerAuth()
   @UseGuards(AuthGuard('jwt'))
   @Post('bots')
   createBot(@CurrentUser() user: JwtPayload, @Body() dto: CreateBotDto) {
     return this.marketplaceService.createBot(user.sub, dto);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @Post('bots/:id/listings')
+  createListing(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') botId: string,
+    @Body() dto: { listingType: string; priceCents: number; trialDays: number },
+  ) {
+    return this.marketplaceService.createListing(user.sub, botId, dto);
   }
 }

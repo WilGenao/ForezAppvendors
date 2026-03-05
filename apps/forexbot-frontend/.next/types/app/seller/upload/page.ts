@@ -1,8 +1,8 @@
-// File: C:\Users\wilme\OneDrive\Escritorio\Proyecto Plataforma de trading\forexbot-marketplace\forexbot-marketplace\apps\forexbot-frontend\app\dashboard\profile\page.tsx
-import * as entry from '../../../../../app/dashboard/profile/page.js'
+// File: C:\Users\wilme\OneDrive\Escritorio\Proyecto Plataforma de trading\forexbot-marketplace\forexbot-marketplace\apps\forexbot-frontend\app\seller\upload\page.tsx
+import * as entry from '../../../../../app/seller/upload/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
-type TEntry = typeof import('../../../../../app/dashboard/profile/page.js')
+type TEntry = typeof import('../../../../../app/seller/upload/page.js')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{

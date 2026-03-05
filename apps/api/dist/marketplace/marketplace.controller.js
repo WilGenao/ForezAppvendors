@@ -24,10 +24,17 @@ let MarketplaceController = class MarketplaceController {
     constructor(marketplaceService) {
         this.marketplaceService = marketplaceService;
     }
-    listBots(query) { return this.marketplaceService.listPublicBots(query); }
-    getBotDetails(slug) { return this.marketplaceService.getBotDetails(slug); }
+    listBots(query) {
+        return this.marketplaceService.listPublicBots(query);
+    }
+    getBotDetails(slug) {
+        return this.marketplaceService.getBotDetails(slug);
+    }
     createBot(user, dto) {
         return this.marketplaceService.createBot(user.sub, dto);
+    }
+    createListing(user, botId, dto) {
+        return this.marketplaceService.createListing(user.sub, botId, dto);
     }
 };
 exports.MarketplaceController = MarketplaceController;
@@ -55,6 +62,17 @@ __decorate([
     __metadata("design:paramtypes", [Object, create_bot_dto_1.CreateBotDto]),
     __metadata("design:returntype", void 0)
 ], MarketplaceController.prototype, "createBot", null);
+__decorate([
+    (0, swagger_1.ApiBearerAuth)(),
+    (0, common_1.UseGuards)((0, passport_1.AuthGuard)('jwt')),
+    (0, common_1.Post)('bots/:id/listings'),
+    __param(0, (0, current_user_decorator_1.CurrentUser)()),
+    __param(1, (0, common_1.Param)('id')),
+    __param(2, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [Object, String, Object]),
+    __metadata("design:returntype", void 0)
+], MarketplaceController.prototype, "createListing", null);
 exports.MarketplaceController = MarketplaceController = __decorate([
     (0, swagger_1.ApiTags)('marketplace'),
     (0, common_1.Controller)({ path: 'marketplace', version: '1' }),
