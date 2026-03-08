@@ -4,7 +4,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { RedisModule } from '@nestjs-modules/ioredis';
-import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { KycModule } from './kyc/kyc.module';
@@ -16,7 +15,6 @@ import { AdminModule } from './admin/admin.module';
 import { SellerModule } from './seller/seller.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { NotificationsModule } from './notifications/notifications.module';
-import { RolesGuard } from './common/guards/roles.guard';
 
 @Module({
   imports: [
@@ -52,8 +50,7 @@ import { RolesGuard } from './common/guards/roles.guard';
     SubscriptionsModule,
     NotificationsModule,
   ],
-  providers: [
-    { provide: APP_GUARD, useClass: RolesGuard },
-  ],
+  providers: [],
 })
 export class AppModule {}
+

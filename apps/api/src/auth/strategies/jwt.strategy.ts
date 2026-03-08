@@ -15,7 +15,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  async validate(payload: { sub: string; email: string; roles: string[] }) {
+  async validate(payload: { sub: string; email: string; roles: string[] }) { console.log("JWT validate called", payload.sub); console.log("JWT validate called", payload.sub);
     const user = await this.usersService.findById(payload.sub);
     if (!user || user.status !== 'active') throw new UnauthorizedException();
 
@@ -23,6 +23,10 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     // This ensures revoked roles take effect immediately without waiting for JWT expiry.
     const roles = await this.usersService.getRolesForUser(payload.sub);
 
-    return { sub: payload.sub, email: payload.email, roles };
+    console.log("JWT roles for user:", payload.sub, roles); return { sub: payload.sub, email: payload.email, roles };
   }
 }
+
+
+
+

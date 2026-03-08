@@ -104,35 +104,38 @@ export default function SellerUploadPage() {
     setStep((s) => s + 1);
   };
 
-  const handleSubmit = async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const { data: bot } = await marketplaceApi.createBot({
-        name: form.name,
-        shortDescription: form.shortDescription,
-        description: form.description,
-        mtPlatform: form.mtPlatform,
-        currencyPairs: form.currencyPairs,
-        timeframes: form.timeframes,
-        riskLevel: form.riskLevel,
-      });
+const handleSubmit = async () => {
+  setLoading(true);
+  setError('');
+  try {
+    const { data: bot } = await marketplaceApi.createBot({
+      name: form.name,
+      shortDescription: form.shortDescription,
+      description: form.description,
+      mtPlatform: form.mtPlatform,
+      currencyPairs: form.currencyPairs,
+      timeframes: form.timeframes,
+      riskLevel: form.riskLevel,
+    });
 
-      await api.post(`/marketplace/bots/${bot.id}/listings`, {
-        listingType: form.listingType,
-        priceCents: form.priceCents,
-        trialDays: form.trialDays,
-      });
+    // Create bot_version placeholder
 
-      setSuccess(true);
-    } catch (err: unknown) {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-        || 'Failed to upload bot. Please try again.';
-      setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  };
+
+    await api.post(`/marketplace/bots/${bot.id}/listings`, {
+      listingType: form.listingType,
+      priceCents: form.priceCents,
+      trialDays: form.trialDays,
+    });
+
+    setSuccess(true);
+  } catch (err: unknown) {
+    const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+      || 'Failed to upload bot. Please try again.';
+    setError(msg);
+  } finally {
+    setLoading(false);
+  }
+};
 
   if (success) {
     return (
@@ -470,3 +473,4 @@ export default function SellerUploadPage() {
     </div>
   );
 }
+

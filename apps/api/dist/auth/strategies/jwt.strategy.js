@@ -25,10 +25,13 @@ let JwtStrategy = class JwtStrategy extends (0, passport_1.PassportStrategy)(pas
         this.usersService = usersService;
     }
     async validate(payload) {
+        console.log("JWT validate called", payload.sub);
+        console.log("JWT validate called", payload.sub);
         const user = await this.usersService.findById(payload.sub);
         if (!user || user.status !== 'active')
             throw new common_1.UnauthorizedException();
         const roles = await this.usersService.getRolesForUser(payload.sub);
+        console.log("JWT roles for user:", payload.sub, roles);
         return { sub: payload.sub, email: payload.email, roles };
     }
 };

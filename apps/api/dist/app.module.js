@@ -12,7 +12,6 @@ const config_1 = require("@nestjs/config");
 const typeorm_1 = require("@nestjs/typeorm");
 const throttler_1 = require("@nestjs/throttler");
 const ioredis_1 = require("@nestjs-modules/ioredis");
-const core_1 = require("@nestjs/core");
 const auth_module_1 = require("./auth/auth.module");
 const users_module_1 = require("./users/users.module");
 const kyc_module_1 = require("./kyc/kyc.module");
@@ -24,7 +23,6 @@ const admin_module_1 = require("./admin/admin.module");
 const seller_module_1 = require("./seller/seller.module");
 const subscriptions_module_1 = require("./subscriptions/subscriptions.module");
 const notifications_module_1 = require("./notifications/notifications.module");
-const roles_guard_1 = require("./common/guards/roles.guard");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -63,9 +61,7 @@ exports.AppModule = AppModule = __decorate([
             subscriptions_module_1.SubscriptionsModule,
             notifications_module_1.NotificationsModule,
         ],
-        providers: [
-            { provide: core_1.APP_GUARD, useClass: roles_guard_1.RolesGuard },
-        ],
+        providers: [],
     })
 ], AppModule);
 //# sourceMappingURL=app.module.js.map

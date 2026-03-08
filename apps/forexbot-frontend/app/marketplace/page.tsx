@@ -219,7 +219,7 @@ export default function MarketplacePage() {
                         </td>
                         <td className="px-3 py-3 text-center">
                           <Link
-                            href={`/marketplace/${String(bot.bot_slug ?? bot.bot_id)}`}
+                            href={`/marketplace/${String(bot.slug ?? bot.bot_slug ?? bot.bot_id)}`}
                             className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold transition-colors whitespace-nowrap"
                           >
                             View
@@ -270,3 +270,4 @@ export default function MarketplacePage() {
     </div>
   );
 }
+

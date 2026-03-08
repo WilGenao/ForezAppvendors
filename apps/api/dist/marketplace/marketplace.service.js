@@ -36,7 +36,9 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         const sellerId = sellerProfile[0].id;
         const slug = this.generateSlug(dto.name) + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6);
         const bot = this.botRepo.create({ ...dto, sellerId, slug, status: 'draft' });
-        return this.botRepo.save(bot);
+        const saved = await this.botRepo.save(bot);
+        await this.dataSource.query(`INSERT INTO bot_versions (bot_id, version, file_url, file_hash, file_size_bytes, is_current) VALUES ($1, $2, $3, $4, $5, true)`, [saved.id, '1.0.0', 'pending', 'pending', 0]);
+        return saved;
     }
     async createListing(userId, botId, dto) {
         const [bot] = await this.dataSource.query(`SELECT b.id FROM bots b JOIN seller_profiles sp ON sp.id = b.seller_id WHERE b.id = $1 AND sp.user_id = $2 LIMIT 1`, [botId, userId]);
@@ -46,7 +48,7 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         if (!version)
             throw new common_1.ForbiddenException('Upload a bot file first');
         const [listing] = await this.dataSource.query(`INSERT INTO bot_listings (bot_id, bot_version_id, listing_type, status, price_cents, currency, trial_days)
-       VALUES ($1, $2, $3, 'pending_review', $4, 'USD', $5) RETURNING id, status`, [botId, version.id, dto.listingType, dto.priceCents, dto.trialDays ?? 0]);
+       VALUES ($1, $2, $3, 'draft', $4, 'USD', $5) RETURNING id, status`, [botId, version.id, dto.listingType, dto.priceCents, dto.trialDays ?? 0]);
         return listing;
     }
     async listPublicBots(query) {
@@ -89,12 +91,7 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
             this.dataSource.query(`SELECT * FROM v_active_bot_listings WHERE ${whereClause} ORDER BY ${orderBy} LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`, resultParams),
             this.dataSource.query(`SELECT COUNT(*) FROM v_active_bot_listings WHERE ${whereClause}`, params),
         ]);
-        const response = {
-            data: results,
-            total: parseInt(countResult[0].count, 10),
-            page,
-            limit,
-        };
+        const response = { data: results, total: parseInt(countResult[0].count, 10), page, limit };
         await this.redis.setex(cacheKey, this.LISTING_CACHE_TTL, JSON.stringify(response));
         return response;
     }
@@ -103,48 +100,16 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         const cached = await this.redis.get(cacheKey);
         if (cached)
             return JSON.parse(cached);
-        const [bot] = await this.dataSource.query(`SELECT
-         b.*,
-         sp.display_name   AS seller_name,
-         sp.is_verified_seller,
-         sp.avg_rating      AS seller_rating,
-         ps.sharpe_ratio,
-         ps.win_rate,
-         ps.max_drawdown_pct,
-         ps.profit_factor,
-         ps.total_trades,
-         ps.expectancy_usd,
-         ps.calmar_ratio,
-         ps.sortino_ratio,
-         COALESCE(
-           json_agg(DISTINCT jsonb_build_object(
-             'type',         bl.listing_type,
-             'price_cents',  bl.price_cents,
-             'listing_id',   bl.id,
-             'trial_days',   bl.trial_days
-           )) FILTER (WHERE bl.id IS NOT NULL),
-           '[]'
-         ) AS listings,
-         COALESCE(
-           json_agg(DISTINCT jsonb_build_object(
-             'type',        af.anomaly_type,
-             'severity',    af.severity,
-             'description', af.description
-           )) FILTER (WHERE af.id IS NOT NULL AND af.is_resolved = FALSE),
-           '[]'
-         ) AS anomalies
+        const [bot] = await this.dataSource.query(`SELECT b.*, sp.display_name AS seller_name, sp.is_verified_seller, sp.avg_rating AS seller_rating,
+         ps.sharpe_ratio, ps.win_rate, ps.max_drawdown_pct, ps.profit_factor,
+         ps.total_trades, ps.expectancy_usd, ps.calmar_ratio, ps.sortino_ratio,
+         COALESCE(json_agg(DISTINCT jsonb_build_object('type', bl.listing_type, 'price_cents', bl.price_cents, 'listing_id', bl.id, 'trial_days', bl.trial_days)) FILTER (WHERE bl.id IS NOT NULL), '[]') AS listings,
+         COALESCE(json_agg(DISTINCT jsonb_build_object('type', af.anomaly_type, 'severity', af.severity, 'description', af.description)) FILTER (WHERE af.id IS NOT NULL AND af.is_active = true), '[]') AS anomalies
        FROM bots b
        JOIN seller_profiles sp ON sp.id = b.seller_id
-       LEFT JOIN performance_snapshots ps
-           ON ps.bot_id = b.id
-           AND ps.period_type = 'all_time'
-           AND ps.snapshot_date = (
-             SELECT MAX(snapshot_date)
-             FROM performance_snapshots
-             WHERE bot_id = b.id AND period_type = 'all_time'
-           )
-       LEFT JOIN bot_listings bl
-           ON bl.bot_id = b.id AND bl.status = 'published' AND bl.deleted_at IS NULL
+       LEFT JOIN performance_snapshots ps ON ps.bot_id = b.id AND ps.period_type = 'all_time'
+         AND ps.snapshot_date = (SELECT MAX(snapshot_date) FROM performance_snapshots WHERE bot_id = b.id AND period_type = 'all_time')
+       LEFT JOIN bot_listings bl ON bl.bot_id = b.id AND bl.status = 'published' AND bl.deleted_at IS NULL
        LEFT JOIN anomaly_flags af ON af.bot_id = b.id
        WHERE b.slug = $1 AND b.status = 'active' AND b.deleted_at IS NULL
        GROUP BY b.id, sp.display_name, sp.is_verified_seller, sp.avg_rating,
@@ -156,11 +121,7 @@ let MarketplaceService = MarketplaceService_1 = class MarketplaceService {
         return bot;
     }
     generateSlug(name) {
-        return name
-            .toLowerCase()
-            .replace(/[^a-z0-9]+/g, '-')
-            .replace(/(^-|-$)/g, '')
-            .slice(0, 80);
+        return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '').slice(0, 80);
     }
 };
 exports.MarketplaceService = MarketplaceService;

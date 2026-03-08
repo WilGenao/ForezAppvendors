@@ -27,6 +27,8 @@ let RolesGuard = class RolesGuard {
         const { user } = context.switchToHttp().getRequest();
         if (!user?.roles)
             throw new common_1.ForbiddenException('Insufficient permissions');
+        console.log("RolesGuard - user:", JSON.stringify(user));
+        console.log("RolesGuard - required:", requiredRoles);
         const hasRole = requiredRoles.some((role) => user.roles.includes(role));
         if (!hasRole)
             throw new common_1.ForbiddenException('Insufficient permissions');

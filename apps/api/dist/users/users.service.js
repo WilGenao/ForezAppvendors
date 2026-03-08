@@ -58,23 +58,23 @@ let UsersService = class UsersService {
         await this.userRepo.update(id, { passwordHash });
     }
     async getRolesForUser(userId) {
-        const rows = await this.dataSource.query(`SELECT role FROM user_roles
-       WHERE user_id = $1
-         AND revoked_at IS NULL`, [userId]);
+        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+        return rows.map((r) => r.role);
+    }
+    async getUserRoles(userId) {
+        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
         return rows.map((r) => r.role);
     }
     async assignRole(userId, role, grantedBy, expiresAt) {
         await this.dataSource.query(`INSERT INTO user_roles (user_id, role, granted_by, expires_at)
-       VALUES ($1, $2, $3, $4, true)
+       VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, role) DO UPDATE
-         SET revoked_at IS NULL,
+         SET revoked_at = NULL,
              granted_by = EXCLUDED.granted_by,
-             expires_at = EXCLUDED.expires_at,
-             updated_at = NOW()`, [userId, role, grantedBy ?? null, expiresAt ?? null]);
+             expires_at = EXCLUDED.expires_at`, [userId, role, grantedBy ?? null, expiresAt ?? null]);
     }
     async revokeRole(userId, role) {
-        await this.dataSource.query(`UPDATE user_roles SET revoked_at IS NOT NULL, updated_at = NOW()
-       WHERE user_id = $1 AND role = $2`, [userId, role]);
+        await this.dataSource.query('UPDATE user_roles SET revoked_at = NOW() WHERE user_id = $1 AND role = $2', [userId, role]);
     }
     async findActiveApiKey(keyHash) {
         const result = await this.dataSource.query(`SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes

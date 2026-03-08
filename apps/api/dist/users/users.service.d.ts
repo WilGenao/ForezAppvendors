@@ -19,6 +19,7 @@ export declare class UsersService {
     markEmailVerified(id: string): Promise<void>;
     updatePassword(id: string, passwordHash: string): Promise<void>;
     getRolesForUser(userId: string): Promise<AppRole[]>;
+    getUserRoles(userId: string): Promise<string[]>;
     assignRole(userId: string, role: AppRole, grantedBy?: string, expiresAt?: Date): Promise<void>;
     revokeRole(userId: string, role: AppRole): Promise<void>;
     findActiveApiKey(keyHash: string): Promise<ApiKeyPayload | null>;

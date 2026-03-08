@@ -64,7 +64,8 @@ let AuthService = AuthService_1 = class AuthService {
                 throw new common_1.UnauthorizedException('Invalid 2FA code');
         }
         await this.usersService.updateLastLogin(user.id, ip);
-        return this.generateTokenPair(user.id, user.email, []);
+        const roles = await this.usersService.getUserRoles(user.id);
+        return this.generateTokenPair(user.id, user.email, roles);
     }
     async generate2FASecret(userId) {
         const secret = speakeasy.generateSecret({ name: `ForexBot:${userId}`, length: 32 });
