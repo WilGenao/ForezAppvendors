@@ -15,20 +15,29 @@ import { AdminModule } from './admin/admin.module';
 import { SellerModule } from './seller/seller.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'postgres',
-        url: config.getOrThrow<string>('DATABASE_URL'),
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        ssl: config.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
-        logging: config.get('NODE_ENV') === 'development',
-        synchronize: false,
-      }),
+      useFactory: (config: ConfigService) => {
+        const isProduction = config.get('NODE_ENV') === 'production';
+        return {
+          type: 'postgres',
+          url: config.getOrThrow<string>('DATABASE_URL'),
+          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          // FIX: In production, enable SSL with proper certificate verification.
+          // rejectUnauthorized: false was a security risk (MITM vulnerability).
+          // Set DB_SSL=true in your production environment.
+          ssl: isProduction && config.get('DB_SSL') === 'true'
+            ? { rejectUnauthorized: true }
+            : false,
+          logging: !isProduction,
+          synchronize: false,
+        };
+      },
     }),
     RedisModule.forRootAsync({
       inject: [ConfigService],
@@ -37,6 +46,8 @@ import { NotificationsModule } from './notifications/notifications.module';
         url: config.getOrThrow<string>('REDIS_URL'),
       }),
     }),
+    // FIX: Per-endpoint throttle overrides in controllers take precedence.
+    // This global limit (100/min) is the fallback for endpoints without specific limits.
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     AuthModule,
     UsersModule,
@@ -49,8 +60,8 @@ import { NotificationsModule } from './notifications/notifications.module';
     SellerModule,
     SubscriptionsModule,
     NotificationsModule,
+    HealthModule, // NEW: Proper health check module
   ],
   providers: [],
 })
 export class AppModule {}
-

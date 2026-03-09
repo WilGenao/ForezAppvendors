@@ -1,60 +1,49 @@
+// ═══════════════════════════════════════════════════
+// HowItWorks.tsx
+// ═══════════════════════════════════════════════════
+'use client';
 import { Search, ShieldCheck, Download, TrendingUp } from 'lucide-react';
 
 const STEPS = [
-  {
-    number: '01',
-    icon: Search,
-    title: 'Browse & Filter',
-    description: 'Search thousands of verified bots by strategy, currency pair, risk level, and performance metrics. Every bot shows real trade history.',
-  },
-  {
-    number: '02',
-    icon: ShieldCheck,
-    title: 'Verify Performance',
-    description: 'Review Sharpe ratio, max drawdown, profit factor, and anomaly detection reports. Our AI flags suspicious patterns automatically.',
-  },
-  {
-    number: '03',
-    icon: Download,
-    title: 'Subscribe & Deploy',
-    description: 'Purchase a license, download the EA file, and install it in MetaTrader 4 or 5. License validation runs automatically.',
-  },
-  {
-    number: '04',
-    icon: TrendingUp,
-    title: 'Monitor & Scale',
-    description: 'Track performance live from your dashboard. Upgrade, pause, or cancel any subscription at any time.',
-  },
+  { n: '01', icon: Search,      color: '#EFF6FF', iconColor: '#2563EB', title: 'Browse & Filter',    desc: 'Search thousands of verified EAs by strategy, currency pair, risk level, and performance metrics. Every bot shows real trade history — no backtests.' },
+  { n: '02', icon: ShieldCheck, color: '#ECFDF5', iconColor: '#059669', title: 'Verify Performance', desc: 'Review Sharpe ratio, max drawdown, profit factor, and anomaly detection reports. Our engine flags suspicious patterns and data manipulation automatically.' },
+  { n: '03', icon: Download,    color: '#FFF7ED', iconColor: '#D97706', title: 'Subscribe & Deploy', desc: 'Purchase a license, download the .ex4 or .ex5 file, and attach it to your MetaTrader chart. License validation runs automatically on every session start.' },
+  { n: '04', icon: TrendingUp,  color: '#F5F3FF', iconColor: '#7C3AED', title: 'Monitor & Scale',   desc: 'Track live performance from your dashboard. Compare against benchmarks, set alerts, and upgrade, pause, or cancel any subscription at any time.' },
 ];
 
 export default function HowItWorks() {
   return (
-    <section id="how-it-works" className="bg-navy-900 py-24 border-y border-navy-800/60">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="text-center mb-16">
-          <p className="text-xs font-mono text-gold-400 uppercase tracking-widest mb-3">Process</p>
-          <h2 className="font-display text-4xl font-bold text-white">How It Works</h2>
-          <p className="text-slate-400 mt-4 max-w-xl mx-auto">
-            From discovery to live trading in under 10 minutes.
+    <section id="how-it-works" style={{ background: '#F8FAFC', padding: '80px 24px', borderTop: '1px solid #E2E8F0', fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+
+        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: '#2563EB', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>How It Works</div>
+          <h2 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 36, fontWeight: 400, color: '#0A1628', letterSpacing: '-0.02em', lineHeight: 1.1, marginBottom: 14 }}>
+            From Discovery to Live Trading<br />in Under 10 Minutes
+          </h2>
+          <p style={{ fontSize: 16, color: '#64748B', maxWidth: 520, margin: '0 auto' }}>
+            A simple, secure process designed for both beginner and professional traders.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 relative">
-          {/* Connector line */}
-          <div className="hidden md:block absolute top-8 left-[12.5%] right-[12.5%] h-px bg-gradient-to-r from-transparent via-navy-700 to-transparent" />
-
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
           {STEPS.map((step, i) => (
-            <div key={step.number} className="relative flex flex-col items-center text-center group">
-              {/* Icon circle */}
-              <div className="w-16 h-16 rounded-full bg-navy-800 border border-navy-700 group-hover:border-gold-500/40 flex items-center justify-center mb-5 relative z-10 transition-all">
-                <step.icon className="w-6 h-6 text-gold-400" />
+            <div key={step.n} style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 16, padding: '28px 24px', position: 'relative' }}>
+              {/* Step number */}
+              <div style={{ position: 'absolute', top: 20, right: 20, fontSize: 12, fontWeight: 700, color: '#E2E8F0', fontFamily: 'JetBrains Mono, monospace' }}>{step.n}</div>
+
+              {/* Icon */}
+              <div style={{ width: 48, height: 48, background: step.color, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 18 }}>
+                <step.icon style={{ width: 22, height: 22, color: step.iconColor }} />
               </div>
 
-              {/* Step number */}
-              <div className="font-mono text-xs text-slate-600 mb-2">{step.number}</div>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0A1628', marginBottom: 10 }}>{step.title}</h3>
+              <p style={{ fontSize: 14, color: '#64748B', lineHeight: 1.65 }}>{step.desc}</p>
 
-              <h3 className="font-semibold text-white mb-3">{step.title}</h3>
-              <p className="text-sm text-slate-500 leading-relaxed">{step.description}</p>
+              {/* Connector */}
+              {i < STEPS.length - 1 && (
+                <div style={{ display: 'none' }} className="connector" />
+              )}
             </div>
           ))}
         </div>

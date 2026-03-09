@@ -1,47 +1,27 @@
 'use client';
-
-/**
- * FIX: Replaced MOCK_BOTS hardcoded data with real API calls via useMarketplaceBots hook.
- * The hook calls GET /marketplace/bots with filters and pagination.
- * Falls back gracefully if the API is unavailable.
- */
-
 import { useState } from 'react';
 import Link from 'next/link';
-import {
-  Activity,
-  Search,
-  SlidersHorizontal,
-  ShieldCheck,
-  ChevronUp,
-  ChevronDown,
-  RefreshCw,
-  AlertTriangle,
-} from 'lucide-react';
+import { Search, SlidersHorizontal, ShieldCheck, ChevronUp, ChevronDown, RefreshCw, AlertCircle, TrendingUp } from 'lucide-react';
 import { useMarketplaceBots } from '@/lib/hooks';
 
 type SortKey = 'avg_rating' | 'profit_factor' | 'max_drawdown_pct' | 'sharpe_ratio' | 'all_time_trades' | 'price_cents';
 
-const COLUMNS: { key: SortKey | string; label: string; align: string }[] = [
-  { key: 'bot_name',          label: 'EA Name',      align: 'left' },
-  { key: 'seller_name',       label: 'Provider',     align: 'left' },
-  { key: 'mt_platform',       label: 'Platform',     align: 'center' },
-  { key: 'avg_rating',        label: 'Win Rate',     align: 'right' },
-  { key: 'profit_factor',     label: 'P.Factor',     align: 'right' },
-  { key: 'max_drawdown_pct',  label: 'Max DD',       align: 'right' },
-  { key: 'sharpe_ratio',      label: 'Sharpe',       align: 'right' },
-  { key: 'all_time_trades',   label: 'Trades',       align: 'right' },
-  { key: 'price_cents',       label: 'Price/mo',     align: 'right' },
-  { key: 'actions',           label: '',             align: 'center' },
+const COLUMNS: { key: string; label: string; align: string }[] = [
+  { key: 'bot_name',         label: 'Algorithm',    align: 'left' },
+  { key: 'seller_name',      label: 'Provider',     align: 'left' },
+  { key: 'mt_platform',      label: 'Platform',     align: 'center' },
+  { key: 'avg_rating',       label: 'Win Rate',     align: 'right' },
+  { key: 'profit_factor',    label: 'Prof. Factor', align: 'right' },
+  { key: 'max_drawdown_pct', label: 'Max DD',       align: 'right' },
+  { key: 'sharpe_ratio',     label: 'Sharpe',       align: 'right' },
+  { key: 'all_time_trades',  label: 'Trades',       align: 'right' },
+  { key: 'price_cents',      label: 'Price/mo',     align: 'right' },
+  { key: 'actions',          label: '',             align: 'center' },
 ];
 
 const SORT_API_MAP: Record<string, string> = {
-  avg_rating:       'rating',
-  profit_factor:    'rating',
-  max_drawdown_pct: 'rating',
-  sharpe_ratio:     'rating',
-  all_time_trades:  'subscribers',
-  price_cents:      'price_asc',
+  avg_rating: 'rating', profit_factor: 'rating', max_drawdown_pct: 'rating',
+  sharpe_ratio: 'rating', all_time_trades: 'subscribers', price_cents: 'price_asc',
 };
 
 export default function MarketplacePage() {
@@ -52,115 +32,77 @@ export default function MarketplacePage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
   const [page, setPage] = useState(1);
 
-  const { data, loading, error, refetch } = useMarketplaceBots({
-    search: search || undefined,
-    mtPlatform: mtPlatform || undefined,
-    sortBy,
-    page,
-    limit: 20,
-  });
+  const { data, loading, error, refetch } = useMarketplaceBots({ search: search || undefined, mtPlatform: mtPlatform || undefined, sortBy, page, limit: 20 });
 
   const bots: Record<string, unknown>[] = (data?.data as Record<string, unknown>[]) || [];
   const total = data?.total || 0;
   const totalPages = Math.ceil(total / 20);
 
-  const handleSearch = () => {
-    setSearch(searchInput);
-    setPage(1);
-  };
-
+  const handleSearch = () => { setSearch(searchInput); setPage(1); };
   const handleSort = (key: string) => {
     const apiKey = SORT_API_MAP[key] || 'rating';
-    if (sortBy === apiKey) {
-      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortBy(apiKey);
-      setSortDir('desc');
-      setPage(1);
-    }
+    if (sortBy === apiKey) { setSortDir(d => d === 'asc' ? 'desc' : 'asc'); }
+    else { setSortBy(apiKey); setSortDir('desc'); setPage(1); }
   };
-
-  const fmt = (v: unknown, decimals = 2) =>
-    v != null && v !== '' ? Number(v).toFixed(decimals) : '—';
+  const fmt = (v: unknown, d = 2) => v != null && v !== '' ? Number(v).toFixed(d) : '—';
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white font-mono">
-      {/* Header */}
-      <div className="bg-[#161b22] border-b border-[#30363d] h-10 flex items-center px-4 justify-between">
-        <Link href="/" className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-blue-400" />
-          <span className="text-sm font-bold tracking-wider">FOREXBOT</span>
-          <span className="text-[10px] text-gray-500">MARKETPLACE</span>
-        </Link>
-        <div className="flex items-center gap-3 text-xs text-gray-400">
-          <span>{total} bots</span>
+    <div style={{ fontFamily: 'DM Sans, sans-serif', background: '#F8FAFC', minHeight: '100vh' }}>
+      {/* Hero bar */}
+      <div style={{ background: '#0A1628', padding: '28px 32px' }}>
+        <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <TrendingUp style={{ width: 20, height: 20, color: '#60A5FA' }} />
+            <h1 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 26, color: '#fff', fontWeight: 400, letterSpacing: '-0.02em' }}>Algorithm Marketplace</h1>
+          </div>
+          <p style={{ fontSize: 14, color: '#475569' }}>{total} verified algorithms available · Real forward-test data only</p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '24px 32px' }}>
         {/* Filters */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="flex-1 flex items-center gap-2 bg-[#161b22] border border-[#30363d] rounded px-3 py-2">
-            <Search className="w-4 h-4 text-gray-500 shrink-0" />
-            <input
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              placeholder="Search bots..."
-              className="flex-1 bg-transparent text-sm text-white placeholder-gray-600 focus:outline-none"
-            />
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 8, padding: '9px 14px' }}>
+            <Search style={{ width: 15, height: 15, color: '#94A3B8', flexShrink: 0 }} />
+            <input value={searchInput} onChange={e => setSearchInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()}
+              placeholder="Search algorithms by name or strategy..."
+              style={{ flex: 1, border: 'none', outline: 'none', fontSize: 14, color: '#334155', fontFamily: 'DM Sans, sans-serif', background: 'transparent' }} />
           </div>
-          <select
-            value={mtPlatform}
-            onChange={(e) => { setMtPlatform(e.target.value); setPage(1); }}
-            className="bg-[#161b22] border border-[#30363d] rounded px-3 py-2 text-sm text-white focus:outline-none"
-          >
+          <select value={mtPlatform} onChange={e => { setMtPlatform(e.target.value); setPage(1); }}
+            style={{ background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 8, padding: '9px 14px', fontSize: 14, color: '#334155', outline: 'none', fontFamily: 'DM Sans, sans-serif' }}>
             <option value="">All Platforms</option>
             <option value="MT4">MT4</option>
             <option value="MT5">MT5</option>
           </select>
-          <button
-            onClick={handleSearch}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm font-bold transition-colors"
-          >
-            <SlidersHorizontal className="w-4 h-4" />
+          <button onClick={handleSearch} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            <SlidersHorizontal style={{ width: 14, height: 14 }} /> Filter
           </button>
-          <button onClick={refetch} className="p-2 text-gray-400 hover:text-white transition-colors">
-            <RefreshCw className="w-4 h-4" />
+          <button onClick={refetch} style={{ padding: 9, background: '#fff', border: '1.5px solid #E2E8F0', borderRadius: 8, cursor: 'pointer' }}>
+            <RefreshCw style={{ width: 15, height: 15, color: '#64748B' }} />
           </button>
         </div>
 
-        {/* Error state */}
+        {/* Error */}
         {error && (
-          <div className="flex items-center gap-2 text-red-400 text-sm bg-red-500/10 border border-red-500/30 rounded p-3 mb-4">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            {error} —{' '}
-            <button onClick={refetch} className="underline hover:no-underline">
-              retry
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#DC2626' }}>
+            <AlertCircle style={{ width: 15, height: 15 }} /> {error}
+            <button onClick={refetch} style={{ marginLeft: 'auto', textDecoration: 'underline', background: 'none', border: 'none', color: '#DC2626', cursor: 'pointer', fontSize: 13 }}>Retry</button>
           </div>
         )}
 
         {/* Table */}
-        <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+        <div style={{ background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr className="border-b border-[#30363d]">
-                  {COLUMNS.map((col) => (
-                    <th
-                      key={col.key}
-                      onClick={() => col.key !== 'actions' && handleSort(col.key)}
-                      className={`px-3 py-2 text-gray-400 font-medium uppercase tracking-wider text-${col.align} ${
-                        col.key !== 'actions' ? 'cursor-pointer hover:text-white select-none' : ''
-                      }`}
-                    >
-                      <span className="inline-flex items-center gap-1">
+                <tr style={{ borderBottom: '1px solid #E2E8F0', background: '#F8FAFC' }}>
+                  {COLUMNS.map(col => (
+                    <th key={col.key} onClick={() => col.key !== 'actions' && handleSort(col.key)}
+                      style={{ padding: '11px 16px', textAlign: col.align as 'left' | 'center' | 'right', fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.06em', cursor: col.key !== 'actions' ? 'pointer' : 'default', whiteSpace: 'nowrap' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                         {col.label}
                         {col.key !== 'actions' && SORT_API_MAP[col.key] === sortBy && (
-                          sortDir === 'desc'
-                            ? <ChevronDown className="w-3 h-3" />
-                            : <ChevronUp className="w-3 h-3" />
+                          sortDir === 'desc' ? <ChevronDown style={{ width: 12, height: 12 }} /> : <ChevronUp style={{ width: 12, height: 12 }} />
                         )}
                       </span>
                     </th>
@@ -168,106 +110,80 @@ export default function MarketplacePage() {
                 </tr>
               </thead>
               <tbody>
-                {loading
-                  ? Array.from({ length: 8 }).map((_, i) => (
-                      <tr key={i} className="border-b border-[#30363d] animate-pulse">
-                        {COLUMNS.map((c) => (
-                          <td key={c.key} className="px-3 py-3">
-                            <div className="h-3 bg-[#30363d] rounded" />
-                          </td>
-                        ))}
-                      </tr>
-                    ))
-                  : bots.map((bot, i) => (
-                      <tr
-                        key={String(bot.listing_id || i)}
-                        className="border-b border-[#30363d] hover:bg-[#21262d] transition-colors"
-                      >
-                        <td className="px-3 py-3">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-white">{String(bot.bot_name ?? '—')}</span>
-                            {bot.is_verified && <ShieldCheck className="w-3 h-3 text-blue-400" />}
-                          </div>
-                        </td>
-                        <td className="px-3 py-3 text-gray-300">{String(bot.seller_name ?? '—')}</td>
-                        <td className="px-3 py-3 text-center">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            String(bot.mt_platform) === 'MT5'
-                              ? 'bg-blue-500/20 text-blue-400'
-                              : String(bot.mt_platform) === 'MT4'
-                              ? 'bg-purple-500/20 text-purple-400'
-                              : 'bg-gray-500/20 text-gray-400'
-                          }`}>
-                            {String(bot.mt_platform ?? '—')}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-right text-green-400">
-                          {bot.win_rate != null ? `${fmt(Number(bot.win_rate) * 100, 1)}%` : '—'}
-                        </td>
-                        <td className="px-3 py-3 text-right text-white">{fmt(bot.profit_factor)}</td>
-                        <td className="px-3 py-3 text-right text-red-400">
-                          {bot.max_drawdown_pct != null ? `${fmt(bot.max_drawdown_pct, 1)}%` : '—'}
-                        </td>
-                        <td className="px-3 py-3 text-right text-white">{fmt(bot.sharpe_ratio)}</td>
-                        <td className="px-3 py-3 text-right text-gray-300">
-                          {bot.all_time_trades != null ? Number(bot.all_time_trades).toLocaleString() : '—'}
-                        </td>
-                        <td className="px-3 py-3 text-right font-bold text-white">
-                          {bot.price_cents != null
-                            ? `$${(Number(bot.price_cents) / 100).toFixed(0)}`
-                            : '—'}
-                        </td>
-                        <td className="px-3 py-3 text-center">
-                          <Link
-                            href={`/marketplace/${String(bot.slug ?? bot.bot_slug ?? bot.bot_id)}`}
-                            className="px-2 py-1 bg-blue-600 hover:bg-blue-500 rounded text-[10px] font-bold transition-colors whitespace-nowrap"
-                          >
-                            View
-                          </Link>
-                        </td>
-                      </tr>
+                {loading ? Array.from({ length: 8 }).map((_, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid #F1F5F9' }}>
+                    {COLUMNS.map(c => (
+                      <td key={c.key} style={{ padding: '14px 16px' }}>
+                        <div style={{ height: 12, background: '#F1F5F9', borderRadius: 4, animation: 'pulse 1.5s infinite' }} />
+                      </td>
                     ))}
+                  </tr>
+                )) : bots.map((bot, i) => (
+                  <tr key={String(bot.listing_id || i)} style={{ borderBottom: '1px solid #F1F5F9', transition: 'background 0.1s' }}
+                    onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#F8FAFC'}
+                    onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#fff'}>
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                        <span style={{ fontWeight: 600, color: '#0A1628' }}>{String(bot.bot_name ?? '—')}</span>
+                        {bot.is_verified && <ShieldCheck style={{ width: 13, height: 13, color: '#2563EB' }} />}
+                      </div>
+                    </td>
+                    <td style={{ padding: '12px 16px', color: '#475569' }}>{String(bot.seller_name ?? '—')}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: String(bot.mt_platform) === 'MT5' ? '#2563EB' : '#7C3AED', background: String(bot.mt_platform) === 'MT5' ? '#EFF6FF' : '#F5F3FF', border: `1px solid ${String(bot.mt_platform) === 'MT5' ? '#BFDBFE' : '#DDD6FE'}`, borderRadius: 6, padding: '2px 8px' }}>
+                        {String(bot.mt_platform ?? '—')}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#059669', fontWeight: 700, fontFamily: 'JetBrains Mono, monospace' }}>
+                      {bot.win_rate != null ? `${fmt(Number(bot.win_rate) * 100, 1)}%` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#334155', fontFamily: 'JetBrains Mono, monospace' }}>{fmt(bot.profit_factor)}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#DC2626', fontFamily: 'JetBrains Mono, monospace' }}>
+                      {bot.max_drawdown_pct != null ? `${fmt(bot.max_drawdown_pct, 1)}%` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#334155', fontFamily: 'JetBrains Mono, monospace' }}>{fmt(bot.sharpe_ratio)}</td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', color: '#475569' }}>
+                      {bot.all_time_trades != null ? Number(bot.all_time_trades).toLocaleString() : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 700, color: '#0A1628', fontFamily: 'DM Serif Display, serif', fontSize: 15 }}>
+                      {bot.price_cents != null ? `$${(Number(bot.price_cents) / 100).toFixed(0)}` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                      <Link href={`/marketplace/${String(bot.slug ?? bot.bot_slug ?? bot.bot_id)}`}
+                        style={{ fontSize: 12, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '5px 12px', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+                        View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t border-[#30363d]">
-              <span className="text-xs text-gray-400">
-                Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={page === 1}
-                  className="px-3 py-1 border border-[#30363d] rounded text-xs disabled:opacity-30 hover:bg-[#21262d] transition-colors"
-                >
-                  Prev
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', borderTop: '1px solid #E2E8F0' }}>
+              <span style={{ fontSize: 13, color: '#64748B' }}>Showing {(page - 1) * 20 + 1}–{Math.min(page * 20, total)} of {total} algorithms</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  style={{ padding: '6px 14px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 6, cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 13, color: '#475569', opacity: page === 1 ? 0.4 : 1 }}>
+                  Previous
                 </button>
-                <span className="text-xs text-gray-400">
-                  {page} / {totalPages}
-                </span>
-                <button
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={page === totalPages}
-                  className="px-3 py-1 border border-[#30363d] rounded text-xs disabled:opacity-30 hover:bg-[#21262d] transition-colors"
-                >
+                <span style={{ fontSize: 13, color: '#64748B' }}>{page} / {totalPages}</span>
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  style={{ padding: '6px 14px', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 6, cursor: page === totalPages ? 'not-allowed' : 'pointer', fontSize: 13, color: '#475569', opacity: page === totalPages ? 0.4 : 1 }}>
                   Next
                 </button>
               </div>
             </div>
           )}
 
-          {/* Empty state */}
           {!loading && bots.length === 0 && !error && (
-            <div className="py-16 text-center text-gray-500 text-sm">
-              No bots found matching your criteria.
-            </div>
+            <div style={{ padding: '60px 16px', textAlign: 'center', color: '#94A3B8', fontSize: 14 }}>No algorithms found matching your criteria.</div>
           )}
         </div>
       </div>
+      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }`}</style>
     </div>
   );
 }
-

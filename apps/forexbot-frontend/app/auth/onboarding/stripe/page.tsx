@@ -1,10 +1,12 @@
 'use client';
-import { useState, useEffect } from 'react';
+export const dynamic = 'force-dynamic';
+
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { CreditCard, Loader2, CheckCircle2, ExternalLink, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 
-export default function OnboardingStripePage() {
+function OnboardingStripeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [loading, setLoading] = useState(false);
@@ -31,7 +33,6 @@ export default function OnboardingStripePage() {
   return (
     <div className="min-h-screen bg-[#0d1117] flex items-center justify-center p-4 font-mono">
       <div className="w-full max-w-lg space-y-4">
-        {/* Progress */}
         <div className="flex items-center gap-2 mb-6">
           {['Identity', 'Payments', 'First Bot'].map((step, i) => (
             <div key={step} className="flex items-center gap-2">
@@ -108,5 +109,13 @@ export default function OnboardingStripePage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function OnboardingStripePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0d1117] flex items-center justify-center text-gray-400 font-mono text-sm">Cargando...</div>}>
+      <OnboardingStripeContent />
+    </Suspense>
   );
 }

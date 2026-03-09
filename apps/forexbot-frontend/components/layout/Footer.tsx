@@ -1,44 +1,65 @@
+'use client';
 import Link from 'next/link';
 import { TrendingUp } from 'lucide-react';
 
+const COLS = [
+  { title: 'Platform',  links: ['Marketplace', 'How It Works', 'Verified Bots', 'Performance Data', 'API Access'] },
+  { title: 'Sellers',   links: ['Become a Seller', 'Seller Dashboard', 'Submission Guidelines', 'Pricing', 'Documentation'] },
+  { title: 'Company',   links: ['About Us', 'Blog', 'Careers', 'Press', 'Contact'] },
+  { title: 'Legal',     links: ['Privacy Policy', 'Terms of Service', 'Risk Disclaimer', 'Cookie Policy'] },
+];
+
 export default function Footer() {
   return (
-    <footer className="border-t border-navy-800/60 bg-navy-950">
-      <div className="max-w-7xl mx-auto px-6 py-16">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-12">
+    <footer style={{ background: '#0F172A', fontFamily: 'DM Sans, sans-serif' }}>
+      <div style={{ maxWidth: 1200, margin: '0 auto', padding: '56px 24px 32px' }}>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1fr 1fr 1fr 1fr', gap: 32, marginBottom: 48 }}>
+          {/* Brand */}
           <div>
-            <Link href="/" className="flex items-center gap-2 mb-4">
-              <div className="w-7 h-7 rounded bg-gold-500 flex items-center justify-center">
-                <TrendingUp className="w-3.5 h-3.5 text-navy-950" strokeWidth={2.5} />
+            <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', marginBottom: 16 }}>
+              <div style={{ width: 32, height: 32, background: '#2563EB', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <TrendingUp style={{ width: 16, height: 16, color: '#fff' }} />
               </div>
-              <span className="font-display font-semibold text-white">ForexBot<span className="text-gold-400">.</span></span>
+              <span style={{ fontSize: 16, fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>ForexBot Markets</span>
             </Link>
-            <p className="text-sm text-slate-500 leading-relaxed">
-              Institutional-grade trading automation for the modern trader.
+            <p style={{ fontSize: 13, color: '#475569', lineHeight: 1.7, marginBottom: 20 }}>
+              Institutional-grade algorithmic trading infrastructure for the modern trader. Every algorithm independently verified.
             </p>
+            {/* Status */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#334155' }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#34D399', display: 'inline-block' }} />
+              All systems operational
+            </div>
           </div>
-          {[
-            { title: 'Platform', links: ['Marketplace', 'How It Works', 'Verified Bots', 'Performance Data'] },
-            { title: 'Sellers', links: ['Become a Seller', 'Seller Dashboard', 'Pricing', 'Documentation'] },
-            { title: 'Company', links: ['About', 'Blog', 'Careers', 'Contact'] },
-          ].map((section) => (
-            <div key={section.title}>
-              <h4 className="text-xs font-semibold uppercase tracking-widest text-slate-500 mb-4">{section.title}</h4>
-              <ul className="flex flex-col gap-3">
-                {section.links.map((link) => (
+
+          {COLS.map(col => (
+            <div key={col.title}>
+              <h4 style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>{col.title}</h4>
+              <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {col.links.map(link => (
                   <li key={link}>
-                    <Link href="#" className="text-sm text-slate-400 hover:text-white transition-colors">{link}</Link>
+                    <Link href="#" style={{ fontSize: 13, color: '#475569', textDecoration: 'none', transition: 'color 0.15s' }}
+                      onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = '#94A3B8')}
+                      onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = '#475569')}
+                    >
+                      {link}
+                    </Link>
                   </li>
                 ))}
               </ul>
             </div>
           ))}
         </div>
-        <div className="mt-12 pt-8 border-t border-navy-800/60 flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-xs text-slate-600">© 2026 ForexBot Marketplace. All rights reserved. Trading involves risk of loss.</p>
-          <div className="flex gap-6">
-            {['Privacy', 'Terms', 'Disclaimer'].map((item) => (
-              <Link key={item} href="#" className="text-xs text-slate-600 hover:text-slate-400 transition-colors">{item}</Link>
+
+        {/* Bottom */}
+        <div style={{ borderTop: '1px solid #1E293B', paddingTop: 24, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <p style={{ fontSize: 12, color: '#334155' }}>
+            © 2026 ForexBot Markets Ltd. All rights reserved. Trading involves risk of loss.
+          </p>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {['Privacy', 'Terms', 'Cookies', 'Disclaimer'].map(item => (
+              <Link key={item} href="#" style={{ fontSize: 12, color: '#334155', textDecoration: 'none', padding: '4px 10px', borderRadius: 4 }}>{item}</Link>
             ))}
           </div>
         </div>

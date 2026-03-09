@@ -2,123 +2,112 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Activity, TrendingUp, ShoppingBag, Key, FileText, LogOut, User } from 'lucide-react';
+import { Key, ShoppingBag, TrendingUp, FileText, ArrowRight, User } from 'lucide-react';
 import { kycApi } from '@/lib/api';
+
+const card = (bg = '#fff') => ({
+  background: bg, border: '1px solid #E2E8F0', borderRadius: 12,
+  boxShadow: '0 1px 3px rgba(0,0,0,0.06)',
+});
 
 export default function DashboardPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [roles, setRoles] = useState<string[]>([]);
-  const [kycStatus, setKycStatus] = useState('loading...');
+  const [kycStatus, setKycStatus] = useState('loading');
 
   useEffect(() => {
     const token = localStorage.getItem('accessToken');
     if (!token) { router.push('/auth/login'); return; }
-    try {
-      const payload = JSON.parse(atob(token.split('.')[1]));
-      setEmail(payload.email || '');
-      setRoles(payload.roles || []);
-    } catch {}
-
-    kycApi.getStatus()
-      .then(res => setKycStatus(res.data.status))
-      .catch(() => setKycStatus('unknown'));
+    try { const p = JSON.parse(atob(token.split('.')[1])); setEmail(p.email || ''); setRoles(p.roles || []); } catch {}
+    kycApi.getStatus().then(r => setKycStatus(r.data.status)).catch(() => setKycStatus('unknown'));
   }, [router]);
 
-  const handleLogout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    router.push('/auth/login');
-  };
-
-  const kycColor = kycStatus === 'approved' ? 'text-mt-green' : kycStatus === 'pending' ? 'text-mt-yellow' : 'text-muted';
+  const kycColor = kycStatus === 'approved' ? '#059669' : kycStatus === 'pending' ? '#D97706' : '#94A3B8';
 
   return (
-    <div className="min-h-screen bg-mt-bg flex flex-col">
-      <div className="bg-mt-panel2 border-b border-border h-10 flex items-center px-4 justify-between flex-shrink-0">
-        <Link href="/" className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-mt-blue" />
-          <span className="font-mono text-sm font-bold text-white tracking-wider">FOREXBOT</span>
-          <span className="font-mono text-xs text-muted">v2.4</span>
-        </Link>
-        <div className="flex items-center gap-4">
-          <span className="font-mono text-[10px] text-muted">{email}</span>
-          <button onClick={handleLogout} className="flex items-center gap-1.5 font-mono text-[10px] text-muted hover:text-white transition-colors">
-            <LogOut className="w-3 h-3" /> LOGOUT
-          </button>
-        </div>
+    <div style={{ padding: 28, fontFamily: 'DM Sans, sans-serif' }}>
+
+      {/* Welcome header */}
+      <div style={{ marginBottom: 28 }}>
+        <h1 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 28, color: '#0A1628', fontWeight: 400, letterSpacing: '-0.02em', marginBottom: 4 }}>
+          Good morning 👋
+        </h1>
+        <p style={{ fontSize: 14, color: '#64748B' }}>{email}</p>
       </div>
 
-      <div className="max-w-5xl mx-auto w-full px-6 py-10 space-y-6">
-        {/* Welcome */}
-        <div className="panel p-5 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-mt-blue/10 border border-mt-blue/30 flex items-center justify-center">
-              <User className="w-5 h-5 text-mt-blue" />
+      {/* KPI row */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 14, marginBottom: 24 }}>
+        {[
+          { label: 'Active Licenses', value: '0', icon: Key, color: '#2563EB', bg: '#EFF6FF' },
+          { label: 'Subscriptions', value: '0', icon: ShoppingBag, color: '#059669', bg: '#ECFDF5' },
+          { label: 'Bots Listed', value: '0', icon: TrendingUp, color: '#7C3AED', bg: '#F5F3FF' },
+          { label: 'KYC Status', value: kycStatus.toUpperCase(), icon: FileText, color: kycColor, bg: '#F8FAFC', valueColor: kycColor },
+        ].map(s => (
+          <div key={s.label} style={{ ...card(), padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{s.label}</span>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <s.icon style={{ width: 16, height: 16, color: s.color }} />
+              </div>
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, color: (s as { valueColor?: string }).valueColor || '#0A1628', fontFamily: 'DM Serif Display, serif' }}>{s.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick nav cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 14, marginBottom: 24 }}>
+        {[
+          { title: 'My Subscriptions', desc: 'View your active EAs, license keys, and subscription status.', href: '/dashboard/buyer', color: '#2563EB' },
+          { title: 'Seller Dashboard', desc: 'Manage your listed algorithms, subscribers, and payouts.', href: '/dashboard/seller', color: '#059669' },
+          { title: 'Account Settings', desc: 'Update profile, security settings, KYC, and API keys.', href: '/dashboard/profile', color: '#7C3AED' },
+        ].map(c => (
+          <div key={c.title} style={{ ...card(), padding: 22, position: 'relative', overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: c.color, borderRadius: '12px 12px 0 0' }} />
+            <h3 style={{ fontSize: 15, fontWeight: 700, color: '#0A1628', marginBottom: 6 }}>{c.title}</h3>
+            <p style={{ fontSize: 13, color: '#64748B', marginBottom: 16, lineHeight: 1.5 }}>{c.desc}</p>
+            <Link href={c.href} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, fontWeight: 600, color: c.color, textDecoration: 'none' }}>
+              Open <ArrowRight style={{ width: 14, height: 14 }} />
+            </Link>
+          </div>
+        ))}
+      </div>
+
+      {/* Roles + Browse CTA */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+        {/* Roles */}
+        <div style={{ ...card(), padding: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <User style={{ width: 18, height: 18, color: '#2563EB' }} />
             </div>
             <div>
-              <div className="font-mono text-xs text-muted uppercase tracking-widest">Logged in as</div>
-              <div className="font-mono text-sm text-white font-semibold mt-0.5">{email}</div>
-              {roles.length > 0 && (
-                <div className="flex gap-1 mt-1">
-                  {roles.map(r => (
-                    <span key={r} className="font-mono text-[9px] bg-mt-blue/10 border border-mt-blue/30 text-mt-blue px-1.5 py-0.5">{r}</span>
-                  ))}
-                </div>
-              )}
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#0A1628' }}>{email}</div>
+              <div style={{ fontSize: 12, color: '#94A3B8' }}>Logged in</div>
             </div>
           </div>
-          <span className="font-mono text-[10px] text-mt-green hidden md:block">● SESSION ACTIVE</span>
-        </div>
-
-        {/* KPI */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            { label: 'ACTIVE_LICENSES', value: '0', icon: Key },
-            { label: 'SUBSCRIPTIONS', value: '0', icon: ShoppingBag },
-            { label: 'BOTS_LISTED', value: '0', icon: TrendingUp },
-            { label: 'KYC_STATUS', value: kycStatus.toUpperCase(), icon: FileText, color: kycColor },
-          ].map(({ label, value, icon: Icon, color }) => (
-            <div key={label} className="panel p-4">
-              <div className="flex items-center justify-between mb-2">
-                <span className="font-mono text-[9px] text-muted tracking-wider">{label}</span>
-                <Icon className="w-3.5 h-3.5 text-muted" />
-              </div>
-              <div className={`font-mono text-lg font-bold ${color || 'text-white'}`}>{value}</div>
+          {roles.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {roles.map(r => (
+                <span key={r} style={{ fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 100, padding: '2px 10px' }}>
+                  {r}
+                </span>
+              ))}
             </div>
-          ))}
-        </div>
-
-        {/* Quick nav */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[
-            { title: 'BUYER_DASHBOARD()', desc: 'View subscriptions, licenses, and performance', href: '/dashboard/buyer', cta: 'OPEN →' },
-            { title: 'SELLER_DASHBOARD()', desc: 'Manage your EAs, subscribers, and revenue', href: '/dashboard/seller', cta: 'OPEN →' },
-            { title: 'ACCOUNT_SETTINGS()', desc: 'Profile, security, notifications, API keys', href: '/dashboard/profile', cta: 'OPEN →' },
-          ].map(card => (
-            <div key={card.title} className="panel p-5">
-              <div className="font-mono text-xs text-white font-semibold mb-1">{card.title}</div>
-              <p className="font-mono text-[10px] text-muted mb-4 leading-relaxed">{card.desc}</p>
-              <Link href={card.href} className="font-mono text-[10px] text-mt-blue hover:underline">{card.cta}</Link>
-            </div>
-          ))}
+          )}
         </div>
 
         {/* Browse CTA */}
-        <div className="panel p-5 flex items-center justify-between">
+        <div style={{ ...card('#0A1628'), padding: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
           <div>
-            <div className="font-mono text-xs text-white font-semibold">Ready to find your next EA?</div>
-            <div className="font-mono text-[10px] text-muted mt-1">2,400+ verified algorithms available now</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 4 }}>Explore the Marketplace</div>
+            <div style={{ fontSize: 13, color: '#475569' }}>2,400+ verified algorithms available now</div>
           </div>
-          <Link href="/marketplace" className="font-mono text-xs bg-mt-blue hover:bg-blue-500 text-white px-4 py-2 transition-colors">
-            BROWSE_MARKETPLACE() →
+          <Link href="/marketplace" style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#2563EB', color: '#fff', fontSize: 13, fontWeight: 600, padding: '9px 18px', borderRadius: 8, textDecoration: 'none', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(37,99,235,0.4)' }}>
+            Browse <ArrowRight style={{ width: 14, height: 14 }} />
           </Link>
         </div>
-      </div>
-
-      <div className="border-t border-border px-4 py-1.5 bg-mt-panel2 flex items-center justify-between mt-auto">
-        <span className="font-mono text-[10px] text-muted">Dashboard · {email}</span>
-        <span className="font-mono text-[10px] val-pos">● CONNECTED</span>
       </div>
     </div>
   );

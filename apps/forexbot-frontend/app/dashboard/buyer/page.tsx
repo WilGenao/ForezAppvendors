@@ -3,53 +3,32 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Key, ShoppingBag, TrendingUp, AlertTriangle, CheckCircle2,
+  Key, ShoppingBag, TrendingUp, AlertCircle, CheckCircle,
   XCircle, Loader2, Copy, Check, RefreshCw, ExternalLink,
-  CreditCard, ChevronRight, Activity,
+  CreditCard, ChevronRight, ShieldCheck,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
 type Subscription = {
-  id: string;
-  status: string;
-  plan: string;
-  price_cents: number;
-  currency: string;
-  current_period_end: string;
-  canceled_at: string | null;
-  bot_id: string;
-  bot_name: string;
-  bot_slug: string;
-  mt_platform: string;
-  avg_rating: number;
-  seller_name: string;
-  license_id: string | null;
-  license_key: string | null;
-  license_status: string | null;
-  license_expires_at: string | null;
-  last_validated_at: string | null;
-  current_activations: number;
-  max_activations: number;
-  sharpe_ratio: number | null;
-  win_rate: number | null;
-  max_drawdown_pct: number | null;
-  profit_factor: number | null;
+  id: string; status: string; plan: string; price_cents: number; currency: string;
+  current_period_end: string; canceled_at: string | null; bot_id: string; bot_name: string;
+  bot_slug: string; mt_platform: string; avg_rating: number; seller_name: string;
+  license_id: string | null; license_key: string | null; license_status: string | null;
+  license_expires_at: string | null; last_validated_at: string | null;
+  current_activations: number; max_activations: number;
+  sharpe_ratio: number | null; win_rate: number | null;
+  max_drawdown_pct: number | null; profit_factor: number | null;
 };
 
-const STATUS_STYLE: Record<string, string> = {
-  active: 'text-green-400 bg-green-500/10 border-green-500/30',
-  trialing: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
-  past_due: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
-  canceled: 'text-gray-500 bg-gray-500/10 border-gray-500/30',
-  unpaid: 'text-red-400 bg-red-500/10 border-red-500/30',
+const STATUS: Record<string, { color: string; bg: string; border: string }> = {
+  active:   { color: '#059669', bg: '#ECFDF5', border: '#A7F3D0' },
+  trialing: { color: '#2563EB', bg: '#EFF6FF', border: '#BFDBFE' },
+  past_due: { color: '#D97706', bg: '#FFFBEB', border: '#FDE68A' },
+  canceled: { color: '#94A3B8', bg: '#F8FAFC', border: '#E2E8F0' },
+  unpaid:   { color: '#DC2626', bg: '#FEF2F2', border: '#FECACA' },
 };
 
-const LICENSE_STATUS_STYLE: Record<string, string> = {
-  active: 'text-green-400',
-  expired: 'text-red-400',
-  revoked: 'text-red-500',
-  suspended: 'text-yellow-400',
-};
+const card = { background: '#fff', border: '1px solid #E2E8F0', borderRadius: 12, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' };
 
 export default function BuyerDashboardPage() {
   const router = useRouter();
@@ -70,11 +49,8 @@ export default function BuyerDashboardPage() {
       const res = await api.get('/subscriptions');
       setSubs(res.data);
       if (res.data.length > 0 && !selected) setSelected(res.data[0]);
-    } catch {
-      showToast('Failed to load subscriptions');
-    } finally {
-      setLoading(false);
-    }
+    } catch { showToast('Failed to load subscriptions'); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -85,295 +61,254 @@ export default function BuyerDashboardPage() {
 
   const copyKey = (key: string) => {
     navigator.clipboard.writeText(key);
-    setCopiedKey(key);
-    setTimeout(() => setCopiedKey(''), 2000);
+    setCopiedKey(key); setTimeout(() => setCopiedKey(''), 2000);
   };
 
   const handleCancel = async (id: string) => {
-    if (!confirm('Cancel this subscription at the end of the billing period?')) return;
+    if (!confirm('Cancel at period end?')) return;
     setActing(true);
-    try {
-      await api.post(`/subscriptions/${id}/cancel`);
-      showToast('Subscription will cancel at period end');
-      load();
-    } catch (e: unknown) {
-      showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error');
-    } finally { setActing(false); }
+    try { await api.post(`/subscriptions/${id}/cancel`); showToast('Cancels at period end'); load(); }
+    catch (e: unknown) { showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error'); }
+    finally { setActing(false); }
   };
 
   const handleReactivate = async (id: string) => {
     setActing(true);
-    try {
-      await api.post(`/subscriptions/${id}/reactivate`);
-      showToast('Subscription reactivated ✓');
-      load();
-    } catch (e: unknown) {
-      showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error');
-    } finally { setActing(false); }
+    try { await api.post(`/subscriptions/${id}/reactivate`); showToast('Reactivated ✓'); load(); }
+    catch (e: unknown) { showToast((e as { response?: { data?: { message?: string } } })?.response?.data?.message ?? 'Error'); }
+    finally { setActing(false); }
   };
 
   const openBillingPortal = async () => {
     setPortalLoading(true);
-    try {
-      const res = await api.get('/subscriptions/billing-portal');
-      window.location.href = res.data;
-    } catch {
-      showToast('Could not open billing portal');
-    } finally { setPortalLoading(false); }
+    try { const res = await api.get('/subscriptions/billing-portal'); window.location.href = res.data; }
+    catch { showToast('Could not open billing portal'); }
+    finally { setPortalLoading(false); }
   };
 
   const activeSubs = subs.filter(s => ['active', 'trialing'].includes(s.status));
   const licenses = subs.filter(s => s.license_key);
 
   return (
-    <div className="min-h-screen bg-[#0d1117] text-white font-mono">
-      {/* Top bar */}
-      <div className="bg-[#161b22] border-b border-[#30363d] h-10 flex items-center px-4 justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-blue-400" />
-          <span className="text-sm font-bold tracking-wider">FOREXBOT</span>
-          <span className="text-[10px] text-gray-500">BUYER DASHBOARD</span>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={openBillingPortal} disabled={portalLoading}
-            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-white border border-[#30363d] hover:border-gray-500 px-3 py-1 rounded transition-colors">
-            {portalLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <CreditCard className="w-3 h-3" />}
-            Billing
-          </button>
-          <button onClick={load} className="text-gray-500 hover:text-white p-1">
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-      </div>
-
+    <div style={{ padding: 28, fontFamily: 'DM Sans, sans-serif', minHeight: '100vh' }}>
       {/* Toast */}
       {toast && (
-        <div className="fixed top-14 right-4 z-50 bg-[#161b22] border border-[#30363d] px-4 py-2.5 rounded text-xs text-white shadow-lg">{toast}</div>
+        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 999, background: '#0A1628', color: '#fff', borderRadius: 8, padding: '10px 16px', fontSize: 13, boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}>{toast}</div>
       )}
 
-      <div className="max-w-6xl mx-auto px-4 py-6 space-y-4">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
+        <div>
+          <h1 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 26, color: '#0A1628', fontWeight: 400, letterSpacing: '-0.02em', marginBottom: 2 }}>My Subscriptions</h1>
+          <p style={{ fontSize: 14, color: '#64748B' }}>Manage your EA subscriptions and license keys</p>
+        </div>
+        <button onClick={openBillingPortal} disabled={portalLoading} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 600, color: '#475569', background: '#fff', border: '1px solid #E2E8F0', borderRadius: 8, padding: '8px 16px', cursor: 'pointer', boxShadow: '0 1px 2px rgba(0,0,0,0.05)' }}>
+          {portalLoading ? <Loader2 style={{ width: 14, height: 14, animation: 'spin 1s linear infinite' }} /> : <CreditCard style={{ width: 14, height: 14 }} />}
+          Billing Portal
+        </button>
+      </div>
 
-        {/* Stats row */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Active Subs', value: activeSubs.length, icon: ShoppingBag, color: 'text-green-400' },
-            { label: 'Total Bots', value: subs.length, icon: TrendingUp, color: 'text-blue-400' },
-            { label: 'Licenses', value: licenses.length, icon: Key, color: 'text-purple-400' },
-          ].map(s => (
-            <div key={s.label} className="bg-[#161b22] border border-[#30363d] rounded p-4">
-              <div className="flex items-center gap-2 mb-2">
-                <s.icon className={`w-4 h-4 ${s.color}`} />
-                <span className="text-[10px] text-gray-500 uppercase tracking-widest">{s.label}</span>
+      {/* Stats */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+        {[
+          { label: 'Active Subscriptions', value: activeSubs.length, icon: ShoppingBag, color: '#059669', bg: '#ECFDF5' },
+          { label: 'Total Bots', value: subs.length, icon: TrendingUp, color: '#2563EB', bg: '#EFF6FF' },
+          { label: 'License Keys', value: licenses.length, icon: Key, color: '#7C3AED', bg: '#F5F3FF' },
+        ].map(s => (
+          <div key={s.label} style={{ ...card, padding: 20 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>{s.label}</span>
+              <div style={{ width: 32, height: 32, borderRadius: 8, background: s.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <s.icon style={{ width: 16, height: 16, color: s.color }} />
               </div>
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
             </div>
-          ))}
-        </div>
-
-        {/* Tabs */}
-        <div className="flex gap-0 border-b border-[#30363d]">
-          {(['subscriptions', 'licenses'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors uppercase tracking-wider ${tab === t ? 'border-blue-400 text-white' : 'border-transparent text-gray-500 hover:text-white'}`}>
-              {t}
-            </button>
-          ))}
-        </div>
-
-        {loading && (
-          <div className="flex items-center justify-center py-16 text-gray-500">
-            <Loader2 className="w-5 h-5 animate-spin mr-2" /> Loading...
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#0A1628', fontFamily: 'DM Serif Display, serif' }}>{s.value}</div>
           </div>
-        )}
+        ))}
+      </div>
 
-        {/* Subscriptions tab */}
-        {!loading && tab === 'subscriptions' && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {/* List */}
-            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
-              {subs.length === 0 && (
-                <div className="flex flex-col items-center py-12 text-gray-600">
-                  <ShoppingBag className="w-8 h-8 mb-2" />
-                  <p className="text-sm">No subscriptions yet.</p>
-                  <Link href="/marketplace" className="text-blue-400 text-xs mt-2 hover:underline">Browse bots →</Link>
-                </div>
-              )}
-              {subs.map(sub => (
-                <div key={sub.id} onClick={() => setSelected(sub)}
-                  className={`flex items-center gap-3 px-4 py-3 border-b border-[#30363d] cursor-pointer transition-colors ${selected?.id === sub.id ? 'bg-[#21262d]' : 'hover:bg-[#1c2128]'}`}>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white text-sm font-bold truncate">{sub.bot_name}</p>
-                    <p className="text-gray-500 text-xs">{sub.seller_name} · {sub.plan.replace('subscription_', '')}</p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-bold ${STATUS_STYLE[sub.status]}`}>
-                      {sub.status.toUpperCase()}
-                    </span>
-                    <ChevronRight className="w-3.5 h-3.5 text-gray-600" />
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: '1px solid #E2E8F0', paddingBottom: 0 }}>
+        {(['subscriptions', 'licenses'] as const).map(t => (
+          <button key={t} onClick={() => setTab(t)} style={{ fontSize: 14, fontWeight: tab === t ? 600 : 500, color: tab === t ? '#2563EB' : '#64748B', background: 'none', border: 'none', borderBottom: `2px solid ${tab === t ? '#2563EB' : 'transparent'}`, padding: '8px 16px', cursor: 'pointer', textTransform: 'capitalize', marginBottom: -1 }}>
+            {t}
+          </button>
+        ))}
+        <button onClick={load} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: '8px' }}>
+          <RefreshCw style={{ width: 14, height: 14, ...(loading ? { animation: 'spin 1s linear infinite' } : {}) }} />
+        </button>
+      </div>
 
-            {/* Detail */}
-            <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
-              {!selected ? (
-                <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Select a subscription</div>
-              ) : (
-                <>
-                  <div className="px-4 py-3 border-b border-[#30363d] flex items-center justify-between">
-                    <span className="text-[10px] text-gray-500 uppercase tracking-widest">{selected.bot_name}</span>
-                    <Link href={`/marketplace/${selected.bot_slug}`}
-                      className="flex items-center gap-1 text-[10px] text-blue-400 hover:text-blue-300 transition-colors">
-                      <ExternalLink className="w-3 h-3" /> View Bot
-                    </Link>
+      {loading && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '60px 0', gap: 10, color: '#94A3B8' }}>
+          <Loader2 style={{ width: 20, height: 20, animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: 14 }}>Loading...</span>
+        </div>
+      )}
+
+      {/* Subscriptions tab */}
+      {!loading && tab === 'subscriptions' && (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr', gap: 16 }}>
+          {/* List */}
+          <div style={{ ...card, overflow: 'hidden' }}>
+            {subs.length === 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '48px 24px', gap: 10 }}>
+                <ShoppingBag style={{ width: 32, height: 32, color: '#CBD5E1' }} />
+                <p style={{ fontSize: 14, color: '#64748B' }}>No subscriptions yet</p>
+                <Link href="/marketplace" style={{ fontSize: 13, color: '#2563EB', textDecoration: 'none', fontWeight: 600 }}>Browse EAs →</Link>
+              </div>
+            ) : subs.map(sub => {
+              const st = STATUS[sub.status] || STATUS.canceled;
+              const active = selected?.id === sub.id;
+              return (
+                <div key={sub.id} onClick={() => setSelected(sub)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px', borderBottom: '1px solid #F1F5F9', cursor: 'pointer', background: active ? '#EFF6FF' : '#fff', transition: 'background 0.15s' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: '#0A1628', marginBottom: 2 }}>{sub.bot_name}</div>
+                    <div style={{ fontSize: 12, color: '#94A3B8' }}>{sub.seller_name} · {sub.mt_platform}</div>
                   </div>
-                  <div className="p-4 space-y-4">
-                    {/* Info grid */}
-                    <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: st.color, background: st.bg, border: `1px solid ${st.border}`, borderRadius: 100, padding: '2px 8px' }}>{sub.status.toUpperCase()}</span>
+                    <ChevronRight style={{ width: 14, height: 14, color: active ? '#2563EB' : '#CBD5E1' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Detail */}
+          <div style={{ ...card, overflow: 'hidden' }}>
+            {!selected ? (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', minHeight: 200, color: '#94A3B8', fontSize: 14 }}>
+                Select a subscription
+              </div>
+            ) : (
+              <>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: '#0A1628' }}>{selected.bot_name}</span>
+                    {selected.avg_rating > 0 && <span style={{ fontSize: 11, color: '#F59E0B' }}>★ {selected.avg_rating?.toFixed(1)}</span>}
+                  </div>
+                  <Link href={`/marketplace/${selected.bot_slug}`} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#2563EB', textDecoration: 'none' }}>
+                    <ExternalLink style={{ width: 12, height: 12 }} /> View
+                  </Link>
+                </div>
+
+                <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* Info grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    {[
+                      { label: 'Plan', value: selected.plan.replace('subscription_', '').toUpperCase() },
+                      { label: 'Price', value: `$${(selected.price_cents / 100).toFixed(2)}${selected.plan.includes('yearly') ? '/yr' : '/mo'}` },
+                      { label: 'Platform', value: selected.mt_platform },
+                      { label: 'Seller', value: selected.seller_name },
+                      { label: 'Next Billing', value: selected.canceled_at ? 'Cancels at period end' : selected.current_period_end ? new Date(selected.current_period_end).toLocaleDateString() : '—' },
+                    ].map(item => (
+                      <div key={item.label} style={{ background: '#F8FAFC', borderRadius: 8, padding: '10px 12px' }}>
+                        <div style={{ fontSize: 11, color: '#94A3B8', fontWeight: 500, marginBottom: 3 }}>{item.label}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#334155' }}>{item.value}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Performance */}
+                  {selected.sharpe_ratio != null && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
                       {[
-                        { label: 'Plan', value: selected.plan.replace('subscription_', '').toUpperCase() },
-                        { label: 'Price', value: `$${(selected.price_cents / 100).toFixed(2)}/${selected.plan.includes('yearly') ? 'yr' : 'mo'}` },
-                        { label: 'Platform', value: selected.mt_platform },
-                        { label: 'Seller', value: selected.seller_name },
-                        { label: 'Next Billing', value: selected.canceled_at ? 'Cancels at period end' : selected.current_period_end ? new Date(selected.current_period_end).toLocaleDateString() : '—' },
-                        { label: 'Status', value: selected.status.toUpperCase() },
-                      ].map(item => (
-                        <div key={item.label}>
-                          <p className="text-gray-500">{item.label}</p>
-                          <p className="text-white font-medium">{item.value}</p>
+                        { label: 'Sharpe', value: selected.sharpe_ratio?.toFixed(2) ?? '—', color: '#2563EB' },
+                        { label: 'Win Rate', value: selected.win_rate != null ? `${(selected.win_rate * 100).toFixed(1)}%` : '—', color: '#059669' },
+                        { label: 'Max DD', value: selected.max_drawdown_pct != null ? `${selected.max_drawdown_pct.toFixed(1)}%` : '—', color: '#DC2626' },
+                        { label: 'Prof. F.', value: selected.profit_factor?.toFixed(2) ?? '—', color: '#7C3AED' },
+                      ].map(m => (
+                        <div key={m.label} style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 8, padding: '10px 8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: 10, color: '#94A3B8', marginBottom: 4 }}>{m.label}</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: m.color, fontFamily: 'JetBrains Mono, monospace' }}>{m.value}</div>
                         </div>
                       ))}
                     </div>
-
-                    {/* Performance stats */}
-                    {selected.sharpe_ratio != null && (
-                      <div className="grid grid-cols-4 gap-2">
-                        {[
-                          { label: 'SHARPE', value: selected.sharpe_ratio?.toFixed(2) ?? '—', color: 'text-blue-400' },
-                          { label: 'WIN RATE', value: selected.win_rate != null ? `${(selected.win_rate * 100).toFixed(1)}%` : '—', color: 'text-green-400' },
-                          { label: 'MAX DD', value: selected.max_drawdown_pct != null ? `${selected.max_drawdown_pct.toFixed(1)}%` : '—', color: 'text-red-400' },
-                          { label: 'PROFIT F.', value: selected.profit_factor?.toFixed(2) ?? '—', color: 'text-purple-400' },
-                        ].map(stat => (
-                          <div key={stat.label} className="bg-[#0d1117] border border-[#30363d] rounded p-2 text-center">
-                            <p className="text-[9px] text-gray-500 mb-1">{stat.label}</p>
-                            <p className={`text-sm font-bold ${stat.color}`}>{stat.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* License key */}
-                    {selected.license_key && (
-                      <div className="bg-[#0d1117] border border-[#30363d] rounded p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-[10px] text-gray-500 uppercase tracking-widest">License Key</span>
-                          <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold ${LICENSE_STATUS_STYLE[selected.license_status ?? 'active']}`}>
-                              {selected.license_status?.toUpperCase()}
-                            </span>
-                            <span className="text-[10px] text-gray-600">
-                              {selected.current_activations}/{selected.max_activations} activations
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <code className="flex-1 text-[11px] text-green-400 bg-[#161b22] px-2 py-1.5 rounded truncate">
-                            {selected.license_key}
-                          </code>
-                          <button onClick={() => copyKey(selected.license_key!)}
-                            className="p-1.5 bg-[#21262d] hover:bg-[#30363d] rounded transition-colors shrink-0">
-                            {copiedKey === selected.license_key
-                              ? <Check className="w-3.5 h-3.5 text-green-400" />
-                              : <Copy className="w-3.5 h-3.5 text-gray-400" />}
-                          </button>
-                        </div>
-                        {selected.last_validated_at && (
-                          <p className="text-[10px] text-gray-600 mt-1.5">
-                            Last validated: {new Date(selected.last_validated_at).toLocaleString()}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Actions */}
-                    <div className="flex gap-2 pt-1">
-                      {selected.canceled_at && selected.status !== 'canceled' ? (
-                        <button onClick={() => handleReactivate(selected.id)} disabled={acting}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 rounded text-xs font-bold transition-colors">
-                          {acting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                          Reactivate
-                        </button>
-                      ) : selected.status === 'active' || selected.status === 'trialing' ? (
-                        <button onClick={() => handleCancel(selected.id)} disabled={acting}
-                          className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-[#21262d] hover:bg-red-900/40 border border-[#30363d] hover:border-red-500/40 disabled:opacity-50 rounded text-xs font-bold text-gray-400 hover:text-red-400 transition-colors">
-                          {acting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />}
-                          Cancel at Period End
-                        </button>
-                      ) : null}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Licenses tab */}
-        {!loading && tab === 'licenses' && (
-          <div className="bg-[#161b22] border border-[#30363d] rounded overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-[#30363d]">
-                    {['Bot', 'License Key', 'Platform', 'Status', 'Activations', 'Last Validated'].map(h => (
-                      <th key={h} className="px-3 py-2.5 text-left text-[10px] text-gray-500 uppercase tracking-wider font-medium">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {licenses.length === 0 && (
-                    <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-600">No licenses yet.</td></tr>
                   )}
-                  {licenses.map(sub => (
-                    <tr key={sub.license_id} className="border-b border-[#30363d] hover:bg-[#1c2128] transition-colors">
-                      <td className="px-3 py-3">
-                        <p className="text-white font-bold">{sub.bot_name}</p>
-                        <p className="text-gray-500 text-[10px]">{sub.seller_name}</p>
-                      </td>
-                      <td className="px-3 py-3">
-                        <div className="flex items-center gap-2">
-                          <code className="text-green-400 text-[11px]">{sub.license_key?.slice(0, 20)}...</code>
-                          <button onClick={() => copyKey(sub.license_key!)}
-                            className="p-1 hover:bg-[#30363d] rounded transition-colors">
-                            {copiedKey === sub.license_key
-                              ? <Check className="w-3 h-3 text-green-400" />
-                              : <Copy className="w-3 h-3 text-gray-500" />}
-                          </button>
+
+                  {/* License key */}
+                  {selected.license_key && (
+                    <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 10, padding: 14 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: '#475569', fontWeight: 600 }}>
+                          <Key style={{ width: 13, height: 13 }} /> License Key
                         </div>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className="px-1.5 py-0.5 bg-blue-500/20 text-blue-400 rounded text-[10px] font-bold">{sub.mt_platform}</span>
-                      </td>
-                      <td className="px-3 py-3">
-                        <span className={`font-bold ${LICENSE_STATUS_STYLE[sub.license_status ?? 'active']}`}>
-                          {sub.license_status?.toUpperCase() ?? '—'}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-white">
-                        {sub.current_activations}/{sub.max_activations}
-                      </td>
-                      <td className="px-3 py-3 text-gray-500">
-                        {sub.last_validated_at ? new Date(sub.last_validated_at).toLocaleDateString() : 'Never'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: '#059669' }}>{selected.license_status?.toUpperCase()}</span>
+                          <span style={{ fontSize: 11, color: '#94A3B8' }}>{selected.current_activations}/{selected.max_activations} uses</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <code style={{ flex: 1, fontSize: 12, color: '#059669', background: '#ECFDF5', border: '1px solid #A7F3D0', borderRadius: 6, padding: '7px 10px', fontFamily: 'JetBrains Mono, monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{selected.license_key}</code>
+                        <button onClick={() => copyKey(selected.license_key!)} style={{ padding: 7, background: '#fff', border: '1px solid #E2E8F0', borderRadius: 6, cursor: 'pointer' }}>
+                          {copiedKey === selected.license_key ? <Check style={{ width: 14, height: 14, color: '#059669' }} /> : <Copy style={{ width: 14, height: 14, color: '#94A3B8' }} />}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {selected.canceled_at && selected.status !== 'canceled' ? (
+                      <button onClick={() => handleReactivate(selected.id)} disabled={acting} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#059669', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                        {acting ? <Loader2 style={{ width: 14, height: 14 }} /> : <CheckCircle style={{ width: 14, height: 14 }} />} Reactivate
+                      </button>
+                    ) : selected.status === 'active' || selected.status === 'trialing' ? (
+                      <button onClick={() => handleCancel(selected.id)} disabled={acting} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px', background: '#fff', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                        {acting ? <Loader2 style={{ width: 14, height: 14 }} /> : <XCircle style={{ width: 14, height: 14 }} />} Cancel
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Licenses tab */}
+      {!loading && tab === 'licenses' && (
+        <div style={{ ...card, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #E2E8F0' }}>
+                {['Bot', 'License Key', 'Platform', 'Status', 'Activations', 'Last Validated'].map(h => (
+                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#94A3B8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {licenses.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: '40px 16px', textAlign: 'center', color: '#94A3B8' }}>No licenses yet.</td></tr>
+              )}
+              {licenses.map(sub => (
+                <tr key={sub.license_id} style={{ borderBottom: '1px solid #F1F5F9' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = '#F8FAFC'}
+                  onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = '#fff'}>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ fontWeight: 600, color: '#0A1628' }}>{sub.bot_name}</div>
+                    <div style={{ fontSize: 12, color: '#94A3B8' }}>{sub.seller_name}</div>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <code style={{ fontSize: 11, color: '#059669', fontFamily: 'JetBrains Mono, monospace' }}>{sub.license_key?.slice(0, 20)}...</code>
+                      <button onClick={() => copyKey(sub.license_key!)} style={{ padding: 4, background: 'none', border: 'none', cursor: 'pointer' }}>
+                        {copiedKey === sub.license_key ? <Check style={{ width: 12, height: 12, color: '#059669' }} /> : <Copy style={{ width: 12, height: 12, color: '#94A3B8' }} />}
+                      </button>
+                    </div>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}><span style={{ fontSize: 11, fontWeight: 600, color: '#2563EB', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6, padding: '2px 8px' }}>{sub.mt_platform}</span></td>
+                  <td style={{ padding: '12px 16px', fontWeight: 600, color: '#059669', fontSize: 12 }}>{sub.license_status?.toUpperCase() ?? '—'}</td>
+                  <td style={{ padding: '12px 16px', color: '#334155' }}>{sub.current_activations}/{sub.max_activations}</td>
+                  <td style={{ padding: '12px 16px', color: '#94A3B8', fontSize: 12 }}>{sub.last_validated_at ? new Date(sub.last_validated_at).toLocaleDateString() : 'Never'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

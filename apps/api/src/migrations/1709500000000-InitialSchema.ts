@@ -82,10 +82,10 @@ export class InitialSchema1709500000000 implements MigrationInterface {
         created_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
         updated_at        TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
         deleted_at        TIMESTAMPTZ,
-        created_by        UUID         REFERENCES users(id),
-        CONSTRAINT users_email_unique UNIQUE (email) WHERE deleted_at IS NULL
+        created_by        UUID         REFERENCES users(id)
       )
     `);
+    await queryRunner.query(`CREATE UNIQUE INDEX users_email_unique ON users (email) WHERE deleted_at IS NULL`);
 
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS user_roles (
@@ -301,7 +301,7 @@ export class InitialSchema1709500000000 implements MigrationInterface {
         created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         deleted_at          TIMESTAMPTZ,
-        CONSTRAINT reviews_one_per_user_bot UNIQUE (user_id, bot_id) WHERE deleted_at IS NULL
+        CONSTRAINT reviews_one_per_user_bot UNIQUE (user_id, bot_id)
       )
     `);
 
@@ -339,7 +339,7 @@ export class InitialSchema1709500000000 implements MigrationInterface {
 
     // Indexes
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL`);
-    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id) WHERE revoked_at IS NULL`);
+    await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id) WHERE is_active = TRUE`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_bots_seller ON bots(seller_id) WHERE deleted_at IS NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_bots_status ON bots(status) WHERE deleted_at IS NULL`);
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS idx_licenses_key ON licenses(license_key)`);

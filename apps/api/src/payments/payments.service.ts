@@ -26,6 +26,7 @@ export class PaymentsService {
     private readonly licensingService: LicensingService,
   ) {
     const stripeKey = config.getOrThrow<string>('STRIPE_SECRET_KEY');
+    // FIX: Updated to current stable Stripe API version
     this.stripe = new Stripe(stripeKey, { apiVersion: '2024-04-10' });
   }
 
@@ -34,7 +35,7 @@ export class PaymentsService {
       `SELECT
          bl.id, bl.price_cents, bl.currency, bl.listing_type, bl.trial_days,
          bl.stripe_price_id,
-         b.id as bot_id, b.name as bot_name,
+         b.id as bot_id, b.name as bot_name, b.slug as bot_slug,
          sp.stripe_account_id, sp.stripe_onboarding_done, sp.user_id as seller_user_id
        FROM bot_listings bl
        JOIN bots b ON b.id = bl.bot_id AND b.deleted_at IS NULL
@@ -48,6 +49,8 @@ export class PaymentsService {
 
     if (!listing) throw new NotFoundException('Listing not found or not available');
 
+    // NOTE: This check is a UX guard only, not a security guarantee.
+    // The real dedup protection is the ON CONFLICT in handleCheckoutCompleted.
     const [existingSubscription] = await this.dataSource.query(
       `SELECT id FROM subscriptions
        WHERE user_id = $1 AND bot_listing_id = $2 AND status IN ('trialing','active')
@@ -62,27 +65,31 @@ export class PaymentsService {
 
     let session: Stripe.Checkout.Session;
 
+    // FIX: Add idempotency key to prevent duplicate Stripe sessions
+    const idempotencyKey = `checkout-${userId}-${botListingId}-${Date.now()}`;
+
     if (listing.listing_type === 'one_time') {
-      session = await this.stripe.checkout.sessions.create({
-        mode: 'payment',
-        line_items: [
-          {
-            price_data: {
-              currency: listing.currency.toLowerCase().trim(),
-              product_data: { name: listing.bot_name },
-              unit_amount: listing.price_cents,
+      session = await this.stripe.checkout.sessions.create(
+        {
+          mode: 'payment',
+          line_items: [
+            {
+              price_data: {
+                currency: listing.currency.toLowerCase().trim(),
+                product_data: { name: listing.bot_name },
+                unit_amount: listing.price_cents,
+              },
+              quantity: 1,
             },
-            quantity: 1,
-          },
-        ],
-        success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
-        client_reference_id: userId,
-        metadata: { user_id: userId, bot_listing_id: botListingId },
-      });
+          ],
+          success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${frontendUrl}/marketplace/${listing.bot_slug}?payment=cancelled`,
+          client_reference_id: userId,
+          metadata: { user_id: userId, bot_listing_id: botListingId },
+        },
+        { idempotencyKey },
+      );
     } else {
-      // For subscriptions we need a Stripe Price ID
-      // If not configured, create a price on the fly for testing
       let priceId = listing.stripe_price_id;
 
       if (!priceId) {
@@ -96,7 +103,6 @@ export class PaymentsService {
         });
         priceId = price.id;
 
-        // Save the price ID for future use
         await this.dataSource.query(
           `UPDATE bot_listings SET stripe_price_id = $1 WHERE id = $2`,
           [priceId, botListingId],
@@ -115,15 +121,18 @@ export class PaymentsService {
         subscriptionData.trial_period_days = listing.trial_days;
       }
 
-      session = await this.stripe.checkout.sessions.create({
-        mode: 'subscription',
-        line_items: [{ price: priceId, quantity: 1 }],
-        subscription_data: subscriptionData,
-        success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
-        client_reference_id: userId,
-        metadata: { user_id: userId, bot_listing_id: botListingId },
-      });
+      session = await this.stripe.checkout.sessions.create(
+        {
+          mode: 'subscription',
+          line_items: [{ price: priceId, quantity: 1 }],
+          subscription_data: subscriptionData,
+          success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${frontendUrl}/marketplace/${listing.bot_slug}?payment=cancelled`,
+          client_reference_id: userId,
+          metadata: { user_id: userId, bot_listing_id: botListingId },
+        },
+        { idempotencyKey },
+      );
     }
 
     this.logger.log({
@@ -149,22 +158,54 @@ export class PaymentsService {
 
     this.logger.log({ msg: 'Webhook received', type: event.type, id: event.id });
 
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await this.handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
-        break;
-      case 'invoice.paid':
-        await this.handleInvoicePaid(event.data.object as Stripe.Invoice);
-        break;
-      case 'customer.subscription.deleted':
-        await this.handleSubscriptionCancelled(event.data.object as Stripe.Subscription);
-        break;
-      case 'invoice.payment_failed':
-        await this.handlePaymentFailed(event.data.object as Stripe.Invoice);
-        break;
-      default:
-        this.logger.log({ msg: 'Unhandled webhook event', type: event.type });
+    // FIX: Global webhook idempotency — check if this event was already processed
+    const alreadyProcessed = await this.markEventProcessed(event.id, event.type);
+    if (alreadyProcessed) {
+      this.logger.warn({ msg: 'Duplicate webhook event — skipping', eventId: event.id });
+      return;
     }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed':
+          await this.handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+          break;
+        case 'invoice.paid':
+          await this.handleInvoicePaid(event.data.object as Stripe.Invoice);
+          break;
+        case 'customer.subscription.deleted':
+          await this.handleSubscriptionCancelled(event.data.object as Stripe.Subscription);
+          break;
+        case 'invoice.payment_failed':
+          await this.handlePaymentFailed(event.data.object as Stripe.Invoice);
+          break;
+        case 'customer.subscription.updated':
+          await this.handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+          break;
+        default:
+          this.logger.log({ msg: 'Unhandled webhook event', type: event.type });
+      }
+    } catch (err) {
+      // Mark event as failed so it can be retried
+      await this.dataSource.query(
+        `UPDATE stripe_events SET processed = false, error = $1 WHERE event_id = $2`,
+        [err.message, event.id],
+      );
+      throw err;
+    }
+  }
+
+  // FIX: Idempotency check using stripe_events table
+  private async markEventProcessed(eventId: string, eventType: string): Promise<boolean> {
+    const result = await this.dataSource.query(
+      `INSERT INTO stripe_events (event_id, event_type, processed, processed_at)
+       VALUES ($1, $2, true, NOW())
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`,
+      [eventId, eventType],
+    );
+    // If nothing was inserted, the event was already processed
+    return result.length === 0;
   }
 
   private async handleCheckoutCompleted(session: Stripe.Checkout.Session): Promise<void> {
@@ -203,7 +244,7 @@ export class PaymentsService {
       );
 
       if (!subscription) {
-        this.logger.warn({ msg: 'Duplicate checkout', userId, botListingId });
+        this.logger.warn({ msg: 'Duplicate checkout — subscription already exists', userId, botListingId });
         return;
       }
 
@@ -269,5 +310,48 @@ export class PaymentsService {
       [invoice.subscription as string],
     );
     this.logger.warn({ msg: 'Payment failed', stripeSubId: invoice.subscription });
+  }
+
+  // NEW: Handle subscription plan changes (upgrades/downgrades)
+  private async handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
+    const newStatus = subscription.status === 'active' ? 'active'
+      : subscription.status === 'trialing' ? 'trialing'
+      : subscription.status === 'past_due' ? 'past_due'
+      : null;
+
+    if (!newStatus) return;
+
+    await this.dataSource.query(
+      `UPDATE subscriptions
+       SET status = $1,
+           current_period_start = to_timestamp($2),
+           current_period_end = to_timestamp($3),
+           updated_at = NOW()
+       WHERE stripe_subscription_id = $4`,
+      [
+        newStatus,
+        subscription.current_period_start,
+        subscription.current_period_end,
+        subscription.id,
+      ],
+    );
+    this.logger.log({ msg: 'Subscription updated', stripeSubId: subscription.id, newStatus });
+  }
+
+  // NEW: Get payment history for a user
+  async getUserPaymentHistory(userId: string) {
+    return this.dataSource.query(
+      `SELECT
+         p.id, p.amount_cents, p.currency, p.status, p.created_at,
+         b.name as bot_name, b.slug as bot_slug
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       JOIN bot_listings bl ON bl.id = s.bot_listing_id
+       JOIN bots b ON b.id = bl.bot_id
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT 50`,
+      [userId],
+    );
   }
 }

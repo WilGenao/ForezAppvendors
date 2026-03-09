@@ -2,8 +2,14 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, EyeOff, Activity, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, TrendingUp, AlertCircle, Loader2, ShieldCheck } from 'lucide-react';
 import { authApi } from '@/lib/api';
+
+const PROOF = [
+  { value: '2,400+', label: 'Verified Algorithms' },
+  { value: '64.2%',  label: 'Average Win Rate'    },
+  { value: '$840M',  label: 'Volume Processed'    },
+];
 
 export default function LoginPage() {
   const router = useRouter();
@@ -24,162 +30,144 @@ export default function LoginPage() {
       router.push('/dashboard');
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message;
-      setError(typeof msg === 'string' ? msg : 'ERR: Invalid credentials');
+      setError(typeof msg === 'string' ? msg : 'Invalid email or password. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-mt-bg flex flex-col">
-      {/* Top bar */}
-      <div className="bg-mt-panel2 border-b border-border h-10 flex items-center px-6 justify-between flex-shrink-0">
-        <Link href="/" className="flex items-center gap-2">
-          <Activity className="w-4 h-4 text-mt-blue" />
-          <span className="font-mono text-sm font-bold text-white tracking-wider">FOREXBOT</span>
-          <span className="font-mono text-xs text-muted">v2.4</span>
+    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: 'DM Sans, sans-serif' }}>
+
+      {/* LEFT: Brand panel */}
+      <div style={{ width: '45%', background: '#0A1628', display: 'flex', flexDirection: 'column', padding: '40px 48px', position: 'relative', overflow: 'hidden' }} className="hidden lg:flex">
+        {/* Background decoration */}
+        <div style={{ position: 'absolute', bottom: -100, right: -100, width: 400, height: 400, borderRadius: '50%', background: 'rgba(37,99,235,0.08)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', top: 200, left: -80, width: 300, height: 300, borderRadius: '50%', background: 'rgba(37,99,235,0.05)', pointerEvents: 'none' }} />
+
+        {/* Logo */}
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', marginBottom: 'auto' }}>
+          <div style={{ width: 36, height: 36, background: '#2563EB', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <TrendingUp style={{ width: 18, height: 18, color: '#fff' }} />
+          </div>
+          <span style={{ fontSize: 17, fontWeight: 700, color: '#fff', letterSpacing: '-0.01em' }}>ForexBot Markets</span>
         </Link>
-        <span className="font-mono text-[10px] text-muted hidden md:block">
-          <span className="text-mt-green">● </span>SERVER: CONNECTED
-        </span>
-      </div>
 
-      {/* Main */}
-      <div className="flex-1 flex">
-        {/* Left info panel */}
-        <div className="hidden lg:flex lg:w-80 border-r border-border flex-col bg-mt-panel2">
-          {/* Panel header */}
-          <div className="px-4 py-2 border-b border-border">
-            <span className="font-mono text-[10px] text-muted tracking-widest uppercase">Account Info</span>
-          </div>
-
-          {/* Terminal output */}
-          <div className="flex-1 p-4 font-mono text-xs text-muted space-y-1 overflow-hidden">
-            <p><span className="text-mt-blue">&gt;</span> Connecting to ForexBot...</p>
-            <p><span className="text-mt-green">&gt;</span> Server: ONLINE</p>
-            <p><span className="text-mt-blue">&gt;</span> Bots available: 2,400</p>
-            <p><span className="text-mt-blue">&gt;</span> Active traders: 18,241</p>
-            <p className="pt-2 text-[#333]">─────────────────────</p>
-            <p className="text-muted">Requires authentication</p>
-            <p className="text-muted">to access platform.</p>
-            <p className="pt-2"><span className="text-mt-blue">&gt;</span> Enter credentials_</p>
-            <p className="animate-pulse text-mt-blue">█</p>
-          </div>
-
-          {/* Bottom stats */}
-          <div className="border-t border-border">
-            {[
-              { label: 'AVG_WIN_RATE', value: '64.2%', pos: true },
-              { label: 'TOP_SHARPE', value: '3.12', pos: true },
-              { label: 'MIN_DRAWDOWN', value: '-3.1%', pos: false },
-            ].map((s) => (
-              <div key={s.label} className="flex justify-between items-center px-4 py-2 border-b border-border">
-                <span className="font-mono text-[10px] text-muted">{s.label}</span>
-                <span className={`font-mono text-xs font-semibold ${s.pos ? 'val-pos' : 'val-neg'}`}>{s.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Center: form */}
-        <div className="flex-1 flex items-center justify-center px-6 py-12">
-          <div className="w-full max-w-sm">
-            {/* Form header */}
-            <div className="panel mb-0">
-              <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-                <span className="font-mono text-[10px] text-muted tracking-widest uppercase">Login — ForexBot Platform</span>
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-mt-red" />
-                  <div className="w-2 h-2 rounded-full bg-mt-yellow" />
-                  <div className="w-2 h-2 rounded-full bg-mt-green" />
-                </div>
-              </div>
-
-              <div className="p-6">
-                {error && (
-                  <div className="flex items-center gap-2 bg-red-500/10 border border-mt-red/30 px-3 py-2 mb-5">
-                    <AlertCircle className="w-3.5 h-3.5 text-mt-red flex-shrink-0" />
-                    <span className="font-mono text-xs text-mt-red">{error}</span>
-                  </div>
-                )}
-
-                <form onSubmit={handleSubmit} className="space-y-4">
-                  <div>
-                    <label className="font-mono text-[10px] text-muted uppercase tracking-wider block mb-1.5">
-                      // Login (email)
-                    </label>
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required
-                      placeholder="trader@example.com"
-                      className="w-full bg-mt-bg border border-border focus:border-mt-blue text-white placeholder-[#333] font-mono text-xs px-3 py-2.5 outline-none transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="font-mono text-[10px] text-muted uppercase tracking-wider block mb-1.5">
-                      // Password
-                    </label>
-                    <div className="relative">
-                      <input
-                        type={showPass ? 'text' : 'password'}
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        required
-                        placeholder="••••••••••••"
-                        className="w-full bg-mt-bg border border-border focus:border-mt-blue text-white placeholder-[#333] font-mono text-xs px-3 py-2.5 pr-9 outline-none transition-colors"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowPass(!showPass)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted hover:text-white"
-                      >
-                        {showPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="accent-mt-blue w-3 h-3" />
-                      <span className="font-mono text-[10px] text-muted">Remember me</span>
-                    </label>
-                    <Link href="#" className="font-mono text-[10px] text-mt-blue hover:underline">
-                      Forgot password?
-                    </Link>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={loading}
-                    className="w-full bg-mt-blue hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-mono text-xs font-semibold py-2.5 transition-colors mt-2"
-                  >
-                    {loading ? '> AUTHENTICATING...' : '> LOGIN()'}
-                  </button>
-                </form>
-
-                <div className="mt-5 pt-4 border-t border-border text-center">
-                  <span className="font-mono text-[10px] text-muted">
-                    No account?{' '}
-                    <Link href="/auth/register" className="text-mt-blue hover:underline">
-                      OPEN_FREE_ACCOUNT()
-                    </Link>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Status bar */}
-            <div className="panel mt-0 border-t-0 px-4 py-1.5 flex items-center justify-between">
-              <span className="font-mono text-[10px] text-muted">SSL: ENCRYPTED</span>
-              <span className="font-mono text-[10px] text-muted">2FA: AVAILABLE</span>
-              <span className="font-mono text-[10px] text-mt-green">● SECURE</span>
+        {/* Main quote */}
+        <div style={{ marginBottom: 'auto', paddingTop: 60 }}>
+          <blockquote style={{ fontFamily: 'DM Serif Display, serif', fontSize: 28, color: '#fff', lineHeight: 1.3, fontWeight: 400, marginBottom: 28, fontStyle: 'italic' }}>
+            "The only marketplace where every algorithm earns its listing through verified performance data."
+          </blockquote>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'rgba(37,99,235,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#60A5FA' }}>JR</div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>James Rodriguez</div>
+              <div style={{ fontSize: 12, color: '#475569' }}>Professional Trader · London, UK</div>
             </div>
           </div>
         </div>
+
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+          {PROOF.map(p => (
+            <div key={p.label} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '16px 14px' }}>
+              <div style={{ fontFamily: 'DM Serif Display, serif', fontSize: 22, color: '#fff', marginBottom: 4 }}>{p.value}</div>
+              <div style={{ fontSize: 11, color: '#475569', lineHeight: 1.3 }}>{p.label}</div>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* RIGHT: Login form */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 24px', background: '#fff' }}>
+        <div style={{ width: '100%', maxWidth: 400 }}>
+
+          {/* Mobile logo */}
+          <Link href="/" className="lg:hidden" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', marginBottom: 32 }}>
+            <div style={{ width: 30, height: 30, background: '#2563EB', borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <TrendingUp style={{ width: 15, height: 15, color: '#fff' }} />
+            </div>
+            <span style={{ fontSize: 15, fontWeight: 700, color: '#0A1628' }}>ForexBot Markets</span>
+          </Link>
+
+          <h1 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 30, fontWeight: 400, color: '#0A1628', marginBottom: 6, letterSpacing: '-0.02em' }}>
+            Welcome back
+          </h1>
+          <p style={{ fontSize: 14, color: '#64748B', marginBottom: 28 }}>
+            Sign in to access your account and portfolio.
+          </p>
+
+          {/* Error */}
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 20 }}>
+              <AlertCircle style={{ width: 16, height: 16, color: '#DC2626', flexShrink: 0 }} />
+              <span style={{ fontSize: 13, color: '#DC2626' }}>{error}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            {/* Email */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, color: '#374151', marginBottom: 6 }}>Email address</label>
+              <input
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                placeholder="you@example.com"
+                style={{ width: '100%', background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: 8, padding: '11px 14px', fontSize: 14, color: '#0A1628', outline: 'none', transition: 'border-color 0.15s', fontFamily: 'DM Sans, sans-serif' }}
+                onFocus={e => (e.target.style.borderColor = '#2563EB')}
+                onBlur={e => (e.target.style.borderColor = '#E2E8F0')}
+              />
+            </div>
+
+            {/* Password */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <label style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>Password</label>
+                <Link href="/auth/forgot-password" style={{ fontSize: 12, color: '#2563EB', textDecoration: 'none', fontWeight: 500 }}>Forgot password?</Link>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPass ? 'text' : 'password'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                  placeholder="••••••••"
+                  style={{ width: '100%', background: '#F8FAFC', border: '1.5px solid #E2E8F0', borderRadius: 8, padding: '11px 42px 11px 14px', fontSize: 14, color: '#0A1628', outline: 'none', fontFamily: 'DM Sans, sans-serif' }}
+                  onFocus={e => (e.target.style.borderColor = '#2563EB')}
+                  onBlur={e => (e.target.style.borderColor = '#E2E8F0')}
+                />
+                <button type="button" onClick={() => setShowPass(!showPass)}
+                  style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#94A3B8', padding: 0 }}>
+                  {showPass ? <EyeOff style={{ width: 17, height: 17 }} /> : <Eye style={{ width: 17, height: 17 }} />}
+                </button>
+              </div>
+            </div>
+
+            {/* Submit */}
+            <button type="submit" disabled={loading}
+              style={{ width: '100%', background: loading ? '#93C5FD' : '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '13px', fontSize: 15, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20, fontFamily: 'DM Sans, sans-serif', boxShadow: loading ? 'none' : '0 2px 8px rgba(37,99,235,0.3)' }}>
+              {loading ? <><Loader2 style={{ width: 16, height: 16, animation: 'spin 1s linear infinite' }} /> Signing in...</> : 'Sign In'}
+            </button>
+          </form>
+
+          <p style={{ textAlign: 'center', fontSize: 14, color: '#64748B', marginTop: 24 }}>
+            Don't have an account?{' '}
+            <Link href="/auth/register" style={{ color: '#2563EB', fontWeight: 600, textDecoration: 'none' }}>
+              Create one free
+            </Link>
+          </p>
+
+          {/* Security note */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 28, paddingTop: 20, borderTop: '1px solid #F1F5F9' }}>
+            <ShieldCheck style={{ width: 13, height: 13, color: '#059669' }} />
+            <span style={{ fontSize: 11, color: '#94A3B8' }}>256-bit SSL encryption · GDPR compliant · 2FA available</span>
+          </div>
+        </div>
+      </div>
+
+      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
