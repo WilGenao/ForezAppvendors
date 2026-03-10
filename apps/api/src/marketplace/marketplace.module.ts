@@ -1,24 +1,25 @@
-﻿import { Module } from '@nestjs/common';
+// apps/api/src/marketplace/marketplace.module.ts
+// MODIFIED — added ModerationService + ModerationController + AdminModerationController
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { RedisModule } from '@nestjs-modules/ioredis';
-import { ConfigService } from '@nestjs/config';
 import { MarketplaceController } from './marketplace.controller';
 import { MarketplaceService } from './marketplace.service';
+import { ModerationController, AdminModerationController } from './moderation.controller';
+import { ModerationService } from './moderation.service';
 import { Bot } from './entities/bot.entity';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Bot]),
-    RedisModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => ({
-        type: 'single',
-        url: config.get<string>('REDIS_URL', 'redis://localhost:6379'),
-      }),
-    }),
+    NotificationsModule,
   ],
-  controllers: [MarketplaceController],
-  providers: [MarketplaceService],
-  exports: [MarketplaceService],
+  controllers: [
+    MarketplaceController,
+    ModerationController,
+    AdminModerationController,
+  ],
+  providers: [MarketplaceService, ModerationService],
+  exports: [MarketplaceService, ModerationService],
 })
 export class MarketplaceModule {}

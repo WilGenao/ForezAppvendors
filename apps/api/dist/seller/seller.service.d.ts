@@ -7,32 +7,43 @@ export declare class SellerService {
     private readonly stripe;
     constructor(dataSource: DataSource, config: ConfigService);
     getDashboard(userId: string): Promise<{
-        seller: {
-            displayName: any;
-            isVerified: any;
-            stripeConnected: boolean;
-            stripeOnboardingUrl: string;
-        };
         revenue: {
             totalCents: number;
             last30dCents: number;
             last7dCents: number;
             totalPayments: number;
-            formatted: {
-                total: string;
-                last30d: string;
-                last7d: string;
-            };
+            total: string;
+            last30d: string;
         };
-        stripeBalance: any;
+        activeSubscribers: any;
         bots: any;
+        monthlySales: any;
+        refunds: {
+            count: number;
+            totalCents: number;
+            total: string;
+        };
+        stripe: {
+            available: {
+                amount: number;
+                currency: string;
+                display: string;
+            }[];
+            pending: {
+                amount: number;
+                currency: string;
+                display: string;
+            }[];
+        };
     }>;
-    getRecentSales(userId: string, page?: number, limit?: number): Promise<{
-        data: any;
-        total: number;
-        page: number;
-        limit: number;
+    getRecentSales(userId: string, page?: number, limit?: number): Promise<any>;
+    getStripeOnboardingUrl(userId: string): Promise<{
+        url: string;
     }>;
-    getStripeOnboardingUrl(userId: string, profile?: Record<string, unknown>): Promise<string>;
-    private getSellerProfile;
+    getSellerProfile(userId: string): Promise<any>;
+    private getRevenueStats;
+    private getBotStats;
+    private getMonthlySales;
+    private getRefunds;
+    private getStripeBalance;
 }

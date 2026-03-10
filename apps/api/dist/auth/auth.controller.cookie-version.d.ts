@@ -10,6 +10,7 @@ export declare class AuthController {
     private readonly config;
     constructor(authService: AuthService, config: ConfigService);
     register(dto: RegisterDto): Promise<{
+        verifyToken: string;
         message: string;
     }>;
     login(dto: LoginDto, req: Request, res: Response): Promise<{

@@ -25,6 +25,8 @@ const ioredis_1 = require("@nestjs-modules/ioredis");
 const ioredis_2 = require("ioredis");
 const users_service_1 = require("../users/users.service");
 const REFRESH_TOKEN_PREFIX = 'refresh_token';
+const EMAIL_VERIFY_PREFIX = 'email_verify';
+const EMAIL_VERIFY_TTL = 86400;
 let AuthService = AuthService_1 = class AuthService {
     constructor(usersService, jwtService, config, redis) {
         this.usersService = usersService;
@@ -39,8 +41,47 @@ let AuthService = AuthService_1 = class AuthService {
             throw new common_1.ConflictException('Email already registered');
         const passwordHash = await bcrypt.hash(dto.password, 12);
         const user = await this.usersService.create({ email: dto.email, passwordHash });
-        this.logger.log({ msg: 'User registered', userId: user.id });
-        return { message: 'Registration successful. Please verify your email.' };
+        const verifyToken = (0, crypto_1.randomBytes)(32).toString('hex');
+        await this.redis.setex(`${EMAIL_VERIFY_PREFIX}:${verifyToken}`, EMAIL_VERIFY_TTL, user.id);
+        this.logger.log({ msg: 'User registered — verification token generated', userId: user.id });
+        return {
+            message: 'Registration successful. Please check your email to verify your account.',
+            ...(this.config.get('NODE_ENV') !== 'production' && { verifyToken }),
+        };
+    }
+    async verifyEmail(token) {
+        const userId = await this.redis.get(`${EMAIL_VERIFY_PREFIX}:${token}`);
+        if (!userId) {
+            throw new common_1.BadRequestException('Verification token is invalid or has expired');
+        }
+        await this.usersService.markEmailVerified(userId);
+        await this.redis.del(`${EMAIL_VERIFY_PREFIX}:${token}`);
+        this.logger.log({ msg: 'Email verified', userId });
+        return { message: 'Email verified successfully. You can now log in.' };
+    }
+    async requestPasswordReset(email) {
+        const user = await this.usersService.findByEmail(email);
+        if (!user)
+            return { message: 'If that email exists, a reset link has been sent.' };
+        const resetToken = (0, crypto_1.randomBytes)(32).toString('hex');
+        await this.redis.setex(`password_reset:${resetToken}`, 3600, user.id);
+        this.logger.log({ msg: 'Password reset requested', userId: user.id });
+        return {
+            message: 'If that email exists, a reset link has been sent.',
+            ...(this.config.get('NODE_ENV') !== 'production' && { resetToken }),
+        };
+    }
+    async resetPassword(token, newPassword) {
+        const userId = await this.redis.get(`password_reset:${token}`);
+        if (!userId) {
+            throw new common_1.BadRequestException('Reset token is invalid or has expired');
+        }
+        const passwordHash = await bcrypt.hash(newPassword, 12);
+        await this.usersService.updatePassword(userId, passwordHash);
+        await this.revokeAllRefreshTokens(userId);
+        await this.redis.del(`password_reset:${token}`);
+        this.logger.log({ msg: 'Password reset successful', userId });
+        return { message: 'Password reset successfully. Please log in with your new password.' };
     }
     async login(dto, ip) {
         const user = await this.usersService.findByEmail(dto.email);
@@ -49,8 +90,12 @@ let AuthService = AuthService_1 = class AuthService {
         const passwordValid = await bcrypt.compare(dto.password, user.passwordHash);
         if (!passwordValid)
             throw new common_1.UnauthorizedException('Invalid credentials');
-        if (user.status !== 'active')
+        if (user.status !== 'active') {
+            if (user.status === 'pending_verification') {
+                throw new common_1.UnauthorizedException('Please verify your email before logging in');
+            }
             throw new common_1.UnauthorizedException(`Account is ${user.status}`);
+        }
         if (user.totpEnabled) {
             if (!dto.totpCode)
                 throw new common_1.UnauthorizedException('2FA code required');
@@ -88,6 +133,21 @@ let AuthService = AuthService_1 = class AuthService {
         await this.usersService.enableTotp(userId);
         return { message: '2FA enabled successfully' };
     }
+    async disable2FA(userId, totpCode) {
+        const user = await this.usersService.findById(userId);
+        if (!user.totpEnabled)
+            throw new common_1.BadRequestException('2FA is not enabled');
+        const valid = speakeasy.totp.verify({
+            secret: user.totpSecret,
+            encoding: 'base32',
+            token: totpCode,
+            window: 1,
+        });
+        if (!valid)
+            throw new common_1.BadRequestException('Invalid TOTP code');
+        await this.usersService.disableTotp(userId);
+        return { message: '2FA disabled successfully' };
+    }
     async refreshTokens(userId, incomingRefreshToken) {
         let payload = null;
         try {
@@ -122,7 +182,8 @@ let AuthService = AuthService_1 = class AuthService {
         const user = await this.usersService.findById(userId);
         if (!user)
             throw new common_1.UnauthorizedException();
-        return this.generateTokenPair(user.id, user.email, []);
+        const roles = await this.usersService.getUserRoles(userId);
+        return this.generateTokenPair(user.id, user.email, roles);
     }
     async logout(userId, refreshToken) {
         try {
@@ -137,6 +198,21 @@ let AuthService = AuthService_1 = class AuthService {
     async validateApiKey(rawKey) {
         const keyHash = (0, crypto_1.createHash)('sha256').update(rawKey).digest('hex');
         return this.usersService.findActiveApiKey(keyHash);
+    }
+    async getActiveSessions(userId) {
+        const pattern = `${REFRESH_TOKEN_PREFIX}:${userId}:*`;
+        const keys = [];
+        let cursor = '0';
+        do {
+            const [nextCursor, found] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+            cursor = nextCursor;
+            keys.push(...found);
+        } while (cursor !== '0');
+        return { sessionCount: keys.length };
+    }
+    async revokeAllSessions(userId) {
+        await this.revokeAllRefreshTokens(userId);
+        return { message: 'All sessions revoked successfully' };
     }
     async revokeAllRefreshTokens(userId) {
         const pattern = `${REFRESH_TOKEN_PREFIX}:${userId}:*`;

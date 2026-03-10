@@ -15,8 +15,11 @@ export declare class PaymentsService {
         sessionId: string;
     }>;
     handleWebhook(rawBody: Buffer, signature: string): Promise<void>;
+    private markEventProcessed;
     private handleCheckoutCompleted;
     private handleInvoicePaid;
     private handleSubscriptionCancelled;
     private handlePaymentFailed;
+    private handleSubscriptionUpdated;
+    getUserPaymentHistory(userId: string): Promise<any>;
 }

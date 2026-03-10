@@ -36,7 +36,7 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         const [listing] = await this.dataSource.query(`SELECT
          bl.id, bl.price_cents, bl.currency, bl.listing_type, bl.trial_days,
          bl.stripe_price_id,
-         b.id as bot_id, b.name as bot_name,
+         b.id as bot_id, b.name as bot_name, b.slug as bot_slug,
          sp.stripe_account_id, sp.stripe_onboarding_done, sp.user_id as seller_user_id
        FROM bot_listings bl
        JOIN bots b ON b.id = bl.bot_id AND b.deleted_at IS NULL
@@ -55,6 +55,7 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         }
         const frontendUrl = this.config.get('FRONTEND_URL', 'http://localhost:3000');
         let session;
+        const idempotencyKey = `checkout-${userId}-${botListingId}-${Date.now()}`;
         if (listing.listing_type === 'one_time') {
             session = await this.stripe.checkout.sessions.create({
                 mode: 'payment',
@@ -69,10 +70,10 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
                     },
                 ],
                 success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
+                cancel_url: `${frontendUrl}/marketplace/${listing.bot_slug}?payment=cancelled`,
                 client_reference_id: userId,
                 metadata: { user_id: userId, bot_listing_id: botListingId },
-            });
+            }, { idempotencyKey });
         }
         else {
             let priceId = listing.stripe_price_id;
@@ -103,10 +104,10 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
                 line_items: [{ price: priceId, quantity: 1 }],
                 subscription_data: subscriptionData,
                 success_url: `${frontendUrl}/dashboard/buyer?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-                cancel_url: `${frontendUrl}/marketplace/${listing.bot_id}?payment=cancelled`,
+                cancel_url: `${frontendUrl}/marketplace/${listing.bot_slug}?payment=cancelled`,
                 client_reference_id: userId,
                 metadata: { user_id: userId, bot_listing_id: botListingId },
-            });
+            }, { idempotencyKey });
         }
         this.logger.log({
             msg: 'Checkout session created',
@@ -127,22 +128,43 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
             throw new common_1.BadRequestException('Invalid webhook signature');
         }
         this.logger.log({ msg: 'Webhook received', type: event.type, id: event.id });
-        switch (event.type) {
-            case 'checkout.session.completed':
-                await this.handleCheckoutCompleted(event.data.object);
-                break;
-            case 'invoice.paid':
-                await this.handleInvoicePaid(event.data.object);
-                break;
-            case 'customer.subscription.deleted':
-                await this.handleSubscriptionCancelled(event.data.object);
-                break;
-            case 'invoice.payment_failed':
-                await this.handlePaymentFailed(event.data.object);
-                break;
-            default:
-                this.logger.log({ msg: 'Unhandled webhook event', type: event.type });
+        const alreadyProcessed = await this.markEventProcessed(event.id, event.type);
+        if (alreadyProcessed) {
+            this.logger.warn({ msg: 'Duplicate webhook event — skipping', eventId: event.id });
+            return;
         }
+        try {
+            switch (event.type) {
+                case 'checkout.session.completed':
+                    await this.handleCheckoutCompleted(event.data.object);
+                    break;
+                case 'invoice.paid':
+                    await this.handleInvoicePaid(event.data.object);
+                    break;
+                case 'customer.subscription.deleted':
+                    await this.handleSubscriptionCancelled(event.data.object);
+                    break;
+                case 'invoice.payment_failed':
+                    await this.handlePaymentFailed(event.data.object);
+                    break;
+                case 'customer.subscription.updated':
+                    await this.handleSubscriptionUpdated(event.data.object);
+                    break;
+                default:
+                    this.logger.log({ msg: 'Unhandled webhook event', type: event.type });
+            }
+        }
+        catch (err) {
+            await this.dataSource.query(`UPDATE stripe_events SET processed = false, error = $1 WHERE event_id = $2`, [err.message, event.id]);
+            throw err;
+        }
+    }
+    async markEventProcessed(eventId, eventType) {
+        const result = await this.dataSource.query(`INSERT INTO stripe_events (event_id, event_type, processed, processed_at)
+       VALUES ($1, $2, true, NOW())
+       ON CONFLICT (event_id) DO NOTHING
+       RETURNING event_id`, [eventId, eventType]);
+        return result.length === 0;
     }
     async handleCheckoutCompleted(session) {
         const { user_id: userId, bot_listing_id: botListingId } = session.metadata || {};
@@ -172,7 +194,7 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
          ON CONFLICT (user_id, bot_listing_id) WHERE status IN ('trialing','active') DO NOTHING
          RETURNING id`, [userId, botListingId, stripeSubId, 'active', now, periodEnd]);
             if (!subscription) {
-                this.logger.warn({ msg: 'Duplicate checkout', userId, botListingId });
+                this.logger.warn({ msg: 'Duplicate checkout — subscription already exists', userId, botListingId });
                 return;
             }
             const platformFee = Math.round(listing.price_cents * PLATFORM_FEE_PERCENT);
@@ -218,6 +240,38 @@ let PaymentsService = PaymentsService_1 = class PaymentsService {
         await this.dataSource.query(`UPDATE subscriptions SET status = 'past_due', updated_at = NOW()
        WHERE stripe_subscription_id = $1`, [invoice.subscription]);
         this.logger.warn({ msg: 'Payment failed', stripeSubId: invoice.subscription });
+    }
+    async handleSubscriptionUpdated(subscription) {
+        const newStatus = subscription.status === 'active' ? 'active'
+            : subscription.status === 'trialing' ? 'trialing'
+                : subscription.status === 'past_due' ? 'past_due'
+                    : null;
+        if (!newStatus)
+            return;
+        await this.dataSource.query(`UPDATE subscriptions
+       SET status = $1,
+           current_period_start = to_timestamp($2),
+           current_period_end = to_timestamp($3),
+           updated_at = NOW()
+       WHERE stripe_subscription_id = $4`, [
+            newStatus,
+            subscription.current_period_start,
+            subscription.current_period_end,
+            subscription.id,
+        ]);
+        this.logger.log({ msg: 'Subscription updated', stripeSubId: subscription.id, newStatus });
+    }
+    async getUserPaymentHistory(userId) {
+        return this.dataSource.query(`SELECT
+         p.id, p.amount_cents, p.currency, p.status, p.created_at,
+         b.name as bot_name, b.slug as bot_slug
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       JOIN bot_listings bl ON bl.id = s.bot_listing_id
+       JOIN bots b ON b.id = bl.bot_id
+       WHERE p.user_id = $1
+       ORDER BY p.created_at DESC
+       LIMIT 50`, [userId]);
     }
 };
 exports.PaymentsService = PaymentsService;

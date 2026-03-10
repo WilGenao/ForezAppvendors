@@ -50,136 +50,163 @@ let LicensingService = LicensingService_1 = class LicensingService {
         this.logger.log({ msg: 'License created', userId, botId, licenseKey: `${licenseKey.slice(0, 8)}...` });
         return licenseKey;
     }
-    async validate(dto, ip) {
-        const startMs = Date.now();
-        const rateLimitKey = `rl:license:${dto.licenseKey}`;
-        const currentCount = await this.redis.incr(rateLimitKey);
-        if (currentCount === 1) {
-            await this.redis.expire(rateLimitKey, this.RATE_LIMIT_WINDOW_SECONDS);
-        }
-        if (currentCount > this.MAX_VALIDATIONS_PER_MINUTE) {
-            this.logger.warn({ msg: 'License rate limit exceeded', licenseKey: dto.licenseKey, count: currentCount });
-            const cached = await this.getCachedValidation(dto.licenseKey);
-            if (cached)
-                return cached;
-        }
-        const cached = await this.getCachedValidation(dto.licenseKey);
-        if (cached) {
-            this.logValidationAsync(dto, ip, cached, Date.now() - startMs);
-            return cached;
-        }
-        const license = await this.licenseRepo.findOne({ where: { licenseKey: dto.licenseKey } });
-        const result = this.evaluateLicense(license, dto);
-        await this.cacheValidation(dto.licenseKey, result);
-        this.logValidationAsync(dto, ip, result, Date.now() - startMs);
-        if (result.isValid && dto.hwidHash && license) {
-            this.registerHwidAsync(license, dto.hwidHash);
-        }
-        return result;
+    async getMyLicenses(userId) {
+        const licenses = await this.dataSource.query(`SELECT
+         l.id,
+         l.license_key,
+         l.status,
+         l.max_activations,
+         l.current_activations,
+         l.expires_at,
+         l.last_validated_at,
+         l.created_at,
+         b.id   AS bot_id,
+         b.name AS bot_name,
+         b.slug AS bot_slug,
+         b.mt_platform,
+         s.status AS subscription_status,
+         s.current_period_end,
+         bv.version AS bot_version
+       FROM licenses l
+       JOIN bots b ON b.id = l.bot_id
+       LEFT JOIN subscriptions s ON s.id = l.subscription_id
+       LEFT JOIN bot_versions bv ON bv.id = l.bot_version_id
+       WHERE l.user_id = $1
+       ORDER BY
+         CASE l.status WHEN 'active' THEN 0 WHEN 'expired' THEN 1 ELSE 2 END,
+         l.created_at DESC`, [userId]);
+        return licenses.map((l) => ({
+            ...l,
+            isExpired: l.expires_at ? new Date(l.expires_at) < new Date() : false,
+            isActive: l.status === 'active' && (!l.expires_at || new Date(l.expires_at) > new Date()),
+        }));
     }
-    async generateLicenseKey(subscriptionId, userId, botId, botVersionId) {
-        const licenseKey = `LK-${(0, crypto_1.randomBytes)(16).toString('hex').toUpperCase()}`;
-        const license = this.licenseRepo.create({
-            subscriptionId,
-            userId,
-            botId,
-            botVersionId,
-            licenseKey,
-            status: 'active',
-        });
-        return this.licenseRepo.save(license);
-    }
-    async revokeLicense(licenseId) {
-        await this.licenseRepo.update(licenseId, { status: 'revoked' });
+    async revoke(licenseId, requestingUserId, roles, reason) {
         const license = await this.licenseRepo.findOne({ where: { id: licenseId } });
-        if (license) {
-            await this.redis.del(`license:validation:${license.licenseKey}`);
-        }
-    }
-    evaluateLicense(license, dto) {
-        if (!license) {
-            return { isValid: false, code: LicenseValidationCode.INVALID_KEY, message: 'License key not found' };
+        if (!license)
+            throw new common_1.NotFoundException('License not found');
+        const isAdmin = roles.includes('admin');
+        if (!isAdmin && license.userId !== requestingUserId) {
+            throw new common_1.ForbiddenException('You can only revoke your own licenses');
         }
         if (license.status === 'revoked') {
-            return { isValid: false, code: LicenseValidationCode.REVOKED, message: 'License has been revoked' };
+            throw new common_1.ConflictException('License is already revoked');
         }
-        if (license.status === 'expired' || (license.expiresAt && license.expiresAt < new Date())) {
-            return { isValid: false, code: LicenseValidationCode.EXPIRED, message: 'License has expired' };
+        await this.licenseRepo.update(licenseId, { status: 'revoked' });
+        await this.redis.del(`license:${license.licenseKey}`);
+        await this.dataSource.query(`INSERT INTO audit_log (user_id, action, entity_type, entity_id, metadata)
+       VALUES ($1, 'license_revoke', 'license', $2, $3)
+       ON CONFLICT DO NOTHING`, [
+            requestingUserId,
+            licenseId,
+            JSON.stringify({ reason: reason ?? 'User requested', revokedBy: requestingUserId }),
+        ]).catch(() => {
+        });
+        this.logger.log({ msg: 'License revoked', licenseId, revokedBy: requestingUserId });
+        return { success: true, message: 'License revoked successfully' };
+    }
+    async validate(dto, ip) {
+        const rateLimitKey = `license_rl:${dto.licenseKey}`;
+        const calls = await this.redis.incr(rateLimitKey);
+        if (calls === 1)
+            await this.redis.expire(rateLimitKey, this.RATE_LIMIT_WINDOW_SECONDS);
+        if (calls > this.MAX_VALIDATIONS_PER_MINUTE) {
+            return {
+                isValid: false,
+                code: LicenseValidationCode.INVALID_KEY,
+                message: 'Rate limit exceeded. Please wait before retrying.',
+            };
         }
-        if (dto.hwidHash && license.hwidHash?.length) {
-            const normalizedNewHash = (0, crypto_1.createHash)('sha256').update(dto.hwidHash).digest('hex');
-            const known = license.hwidHash.includes(normalizedNewHash);
-            const hasSlot = license.currentActivations < license.maxActivations;
-            if (!known && !hasSlot) {
-                return {
+        const cacheKey = `license:${dto.licenseKey}`;
+        const cached = await this.redis.get(cacheKey);
+        if (cached) {
+            const result = JSON.parse(cached);
+            this.logValidationAsync(dto.licenseKey, result, ip);
+            return result;
+        }
+        const license = await this.licenseRepo.findOne({
+            where: { licenseKey: dto.licenseKey },
+        });
+        let result;
+        if (!license) {
+            result = {
+                isValid: false,
+                code: LicenseValidationCode.INVALID_KEY,
+                message: 'License key not found',
+            };
+        }
+        else if (license.status === 'revoked') {
+            result = {
+                isValid: false,
+                code: LicenseValidationCode.REVOKED,
+                message: 'License has been revoked',
+            };
+        }
+        else if (license.status === 'expired' || (license.expiresAt && new Date() > license.expiresAt)) {
+            result = {
+                isValid: false,
+                code: LicenseValidationCode.EXPIRED,
+                message: 'License has expired',
+                expiresAt: license.expiresAt,
+            };
+            if (license.status !== 'expired') {
+                await this.licenseRepo.update(license.id, { status: 'expired' });
+            }
+        }
+        else if (dto.hwidHash && license.hwidHash?.length && !license.hwidHash.includes(dto.hwidHash)) {
+            if ((license.currentActivations ?? 0) >= license.maxActivations) {
+                result = {
                     isValid: false,
                     code: LicenseValidationCode.MAX_ACTIVATIONS,
-                    message: `Max activations (${license.maxActivations}) reached`,
+                    message: `Maximum device activations (${license.maxActivations}) reached`,
+                };
+            }
+            else {
+                const updatedHwids = [...(license.hwidHash ?? []), dto.hwidHash];
+                await this.licenseRepo.update(license.id, {
+                    hwidHash: updatedHwids,
+                    currentActivations: (license.currentActivations ?? 0) + 1,
+                    lastValidatedAt: new Date(),
+                });
+                result = {
+                    isValid: true,
+                    code: LicenseValidationCode.VALID,
+                    message: 'License valid — new device registered',
+                    expiresAt: license.expiresAt,
+                    botId: license.botId,
+                    botVersionId: license.botVersionId,
                 };
             }
         }
-        return {
-            isValid: true,
-            code: LicenseValidationCode.VALID,
-            message: 'License valid',
-            expiresAt: license.expiresAt,
-            botId: license.botId,
-            botVersionId: license.botVersionId,
-        };
-    }
-    async getCachedValidation(licenseKey) {
-        const cacheKey = `license:validation:${licenseKey}`;
-        const cached = await this.redis.get(cacheKey);
-        return cached ? JSON.parse(cached) : null;
-    }
-    async cacheValidation(licenseKey, result) {
-        const cacheKey = `license:validation:${licenseKey}`;
-        const ttl = result.isValid ? this.CACHE_TTL_SECONDS : 10;
+        else {
+            await this.licenseRepo.update(license.id, { lastValidatedAt: new Date() });
+            result = {
+                isValid: true,
+                code: LicenseValidationCode.VALID,
+                message: 'License is valid',
+                expiresAt: license.expiresAt,
+                botId: license.botId,
+                botVersionId: license.botVersionId,
+            };
+        }
+        const ttl = result.isValid ? this.CACHE_TTL_SECONDS : 60;
         await this.redis.setex(cacheKey, ttl, JSON.stringify(result));
+        this.logValidationAsync(dto.licenseKey, result, ip);
+        return result;
     }
-    logValidationAsync(dto, ip, result, responseMs) {
-        setImmediate(async () => {
-            try {
-                const license = await this.licenseRepo.findOne({ where: { licenseKey: dto.licenseKey } });
-                if (!license)
-                    return;
-                await this.dataSource.query(`INSERT INTO license_validations
-             (license_id, is_valid, hwid_hash, ip_address, mt_account_id, mt_platform, response_code, response_ms)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`, [
-                    license.id,
-                    result.isValid,
-                    dto.hwidHash,
-                    ip,
-                    dto.mtAccountId,
-                    dto.mtPlatform,
-                    result.code,
-                    responseMs,
-                ]);
-                await this.licenseRepo.update(license.id, { lastValidatedAt: new Date() });
-            }
-            catch (err) {
-                this.logger.error({ msg: 'Failed to log license validation', err });
-            }
-        });
+    async expireOverdueLicenses() {
+        const result = await this.dataSource.query(`UPDATE licenses SET status = 'expired'
+       WHERE status = 'active' AND expires_at IS NOT NULL AND expires_at < NOW()
+       RETURNING id`);
+        const count = result[1] ?? result.length ?? 0;
+        if (count > 0) {
+            this.logger.log({ msg: 'Licenses expired by scheduler', count });
+        }
+        return { expired: count };
     }
-    registerHwidAsync(license, newHwid) {
-        setImmediate(async () => {
-            try {
-                const normalizedHash = (0, crypto_1.createHash)('sha256').update(newHwid).digest('hex');
-                const existing = license.hwidHash || [];
-                if (!existing.includes(normalizedHash)) {
-                    const updated = [...existing, normalizedHash];
-                    await this.licenseRepo.update(license.id, {
-                        hwidHash: updated,
-                        currentActivations: updated.length,
-                    });
-                    await this.redis.del(`license:validation:${license.licenseKey}`);
-                }
-            }
-            catch (err) {
-                this.logger.error({ msg: 'Failed to register HWID', licenseId: license.id, err });
-            }
-        });
+    logValidationAsync(licenseKey, result, ip) {
+        this.dataSource.query(`INSERT INTO license_validations (license_key, ip_address, is_valid, validation_code, validated_at)
+       VALUES ($1, $2::inet, $3, $4, NOW())`, [licenseKey.slice(0, 8) + '...', ip, result.isValid, result.code]).catch((err) => this.logger.warn({ msg: 'Failed to log validation', err: err.message }));
     }
 };
 exports.LicensingService = LicensingService;

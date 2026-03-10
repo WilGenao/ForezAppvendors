@@ -28,12 +28,14 @@ export declare class LicensingService {
     private readonly MAX_VALIDATIONS_PER_MINUTE;
     constructor(licenseRepo: Repository<License>, redis: Redis, dataSource: DataSource);
     createLicenseForSubscription(manager: EntityManager, subscriptionId: string, userId: string, botId: string): Promise<string>;
+    getMyLicenses(userId: string): Promise<unknown[]>;
+    revoke(licenseId: string, requestingUserId: string, roles: string[], reason?: string): Promise<{
+        success: boolean;
+        message: string;
+    }>;
     validate(dto: ValidateLicenseDto, ip: string): Promise<ValidationResult>;
-    generateLicenseKey(subscriptionId: string, userId: string, botId: string, botVersionId: string): Promise<License>;
-    revokeLicense(licenseId: string): Promise<void>;
-    private evaluateLicense;
-    private getCachedValidation;
-    private cacheValidation;
+    expireOverdueLicenses(): Promise<{
+        expired: number;
+    }>;
     private logValidationAsync;
-    private registerHwidAsync;
 }

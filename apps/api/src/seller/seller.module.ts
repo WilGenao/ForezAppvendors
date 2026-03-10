@@ -2,11 +2,11 @@
 import { Module } from '@nestjs/common';
 import { SellerController } from './seller.controller';
 import { SellerService } from './seller.service';
-import { AuthModule } from '../auth/auth.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [],
   controllers: [SellerController],
   providers: [SellerService],
+  exports: [SellerService],
 })
 export class SellerModule {}

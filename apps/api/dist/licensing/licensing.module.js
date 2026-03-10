@@ -9,8 +9,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.LicensingModule = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
-const ioredis_1 = require("@nestjs-modules/ioredis");
-const config_1 = require("@nestjs/config");
 const licensing_controller_1 = require("./licensing.controller");
 const licensing_service_1 = require("./licensing.service");
 const license_entity_1 = require("./entities/license.entity");
@@ -19,16 +17,7 @@ let LicensingModule = class LicensingModule {
 exports.LicensingModule = LicensingModule;
 exports.LicensingModule = LicensingModule = __decorate([
     (0, common_1.Module)({
-        imports: [
-            typeorm_1.TypeOrmModule.forFeature([license_entity_1.License]),
-            ioredis_1.RedisModule.forRootAsync({
-                inject: [config_1.ConfigService],
-                useFactory: (config) => ({
-                    type: 'single',
-                    url: config.get('REDIS_URL', 'redis://localhost:6379'),
-                }),
-            }),
-        ],
+        imports: [typeorm_1.TypeOrmModule.forFeature([license_entity_1.License])],
         controllers: [licensing_controller_1.LicensingController],
         providers: [licensing_service_1.LicensingService],
         exports: [licensing_service_1.LicensingService],

@@ -23,6 +23,8 @@ const admin_module_1 = require("./admin/admin.module");
 const seller_module_1 = require("./seller/seller.module");
 const subscriptions_module_1 = require("./subscriptions/subscriptions.module");
 const notifications_module_1 = require("./notifications/notifications.module");
+const leaderboard_module_1 = require("./leaderboard/leaderboard.module");
+const health_module_1 = require("./health/health.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -32,14 +34,19 @@ exports.AppModule = AppModule = __decorate([
             config_1.ConfigModule.forRoot({ isGlobal: true, envFilePath: ['.env.local', '.env'] }),
             typeorm_1.TypeOrmModule.forRootAsync({
                 inject: [config_1.ConfigService],
-                useFactory: (config) => ({
-                    type: 'postgres',
-                    url: config.getOrThrow('DATABASE_URL'),
-                    entities: [__dirname + '/**/*.entity{.ts,.js}'],
-                    ssl: config.get('NODE_ENV') === 'production' ? { rejectUnauthorized: false } : false,
-                    logging: config.get('NODE_ENV') === 'development',
-                    synchronize: false,
-                }),
+                useFactory: (config) => {
+                    const isProduction = config.get('NODE_ENV') === 'production';
+                    return {
+                        type: 'postgres',
+                        url: config.getOrThrow('DATABASE_URL'),
+                        entities: [__dirname + '/**/*.entity{.ts,.js}'],
+                        ssl: isProduction && config.get('DB_SSL') === 'true'
+                            ? { rejectUnauthorized: true }
+                            : false,
+                        logging: !isProduction,
+                        synchronize: false,
+                    };
+                },
             }),
             ioredis_1.RedisModule.forRootAsync({
                 inject: [config_1.ConfigService],
@@ -60,6 +67,8 @@ exports.AppModule = AppModule = __decorate([
             seller_module_1.SellerModule,
             subscriptions_module_1.SubscriptionsModule,
             notifications_module_1.NotificationsModule,
+            leaderboard_module_1.LeaderboardModule,
+            health_module_1.HealthModule,
         ],
         providers: [],
     })

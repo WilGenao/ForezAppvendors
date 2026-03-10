@@ -1,5 +1,11 @@
 // apps/api/src/seller/seller.service.ts
-import { Injectable, ForbiddenException, NotFoundException, Logger } from '@nestjs/common';
+// EXTENDED — adds full dashboard with monthlySales[] and refunds
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  Logger,
+} from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
@@ -18,12 +24,109 @@ export class SellerService {
     });
   }
 
-  /** Dashboard overview: revenue, subscribers, payout balance */
+  // ─── Dashboard ────────────────────────────────────────────────────────────
+
   async getDashboard(userId: string) {
     const sellerProfile = await this.getSellerProfile(userId);
 
-    // Revenue from DB (platform's source of truth for historical data)
-    const [revenueStats] = await this.dataSource.query(
+    const [revenueStats, bots, monthlySales, refunds, stripeBalance] = await Promise.all([
+      this.getRevenueStats(sellerProfile.id),
+      this.getBotStats(sellerProfile.id),
+      this.getMonthlySales(sellerProfile.id),
+      this.getRefunds(sellerProfile.id),
+      this.getStripeBalance(sellerProfile.stripe_account_id),
+    ]);
+
+    return {
+      revenue: {
+        totalCents: parseInt(revenueStats.total_payout_cents, 10),
+        last30dCents: parseInt(revenueStats.payout_30d_cents, 10),
+        last7dCents: parseInt(revenueStats.payout_7d_cents, 10),
+        totalPayments: parseInt(revenueStats.total_payments, 10),
+        // Formatted for display
+        total: (parseInt(revenueStats.total_payout_cents, 10) / 100).toFixed(2),
+        last30d: (parseInt(revenueStats.payout_30d_cents, 10) / 100).toFixed(2),
+      },
+      activeSubscribers: bots.reduce((sum, b) => sum + parseInt(b.active_subs ?? '0', 10), 0),
+      bots,
+      monthlySales,
+      refunds,
+      stripe: stripeBalance,
+    };
+  }
+
+  async getRecentSales(userId: string, page = 1, limit = 20) {
+    const sellerProfile = await this.getSellerProfile(userId);
+    const offset = (page - 1) * limit;
+
+    const sales = await this.dataSource.query(
+      `SELECT
+         p.id,
+         p.amount_cents,
+         p.seller_payout_cents,
+         p.platform_fee_cents,
+         p.status,
+         p.created_at,
+         b.name AS bot_name,
+         b.slug AS bot_slug,
+         bl.listing_type AS plan,
+         COALESCE(bp.display_name, 'Anonymous') AS buyer_name
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       JOIN bot_listings bl ON bl.id = s.bot_listing_id
+       JOIN bots b ON b.id = bl.bot_id
+       LEFT JOIN buyer_profiles bp ON bp.user_id = s.user_id
+       WHERE b.seller_id = $1 AND p.status = 'succeeded'
+       ORDER BY p.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [sellerProfile.id, limit, offset],
+    );
+
+    return sales;
+  }
+
+  async getStripeOnboardingUrl(userId: string): Promise<{ url: string }> {
+    const sellerProfile = await this.getSellerProfile(userId);
+
+    let accountId = sellerProfile.stripe_account_id;
+
+    if (!accountId) {
+      const account = await this.stripe.accounts.create({
+        type: 'express',
+        capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
+      });
+      accountId = account.id;
+      await this.dataSource.query(
+        `UPDATE seller_profiles SET stripe_account_id = $1 WHERE id = $2`,
+        [accountId, sellerProfile.id],
+      );
+    }
+
+    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
+    const link = await this.stripe.accountLinks.create({
+      account: accountId,
+      refresh_url: `${frontendUrl}/auth/onboarding/stripe?retry=1`,
+      return_url: `${frontendUrl}/auth/onboarding/stripe?success=1`,
+      type: 'account_onboarding',
+    });
+
+    return { url: link.url };
+  }
+
+  // ─── Private helpers ─────────────────────────────────────────────────────
+
+  async getSellerProfile(userId: string) {
+    const [profile] = await this.dataSource.query(
+      `SELECT id, user_id, stripe_account_id, stripe_onboarding_done, display_name
+       FROM seller_profiles WHERE user_id = $1 LIMIT 1`,
+      [userId],
+    );
+    if (!profile) throw new ForbiddenException('Seller profile not found');
+    return profile;
+  }
+
+  private async getRevenueStats(sellerId: string) {
+    const [stats] = await this.dataSource.query(
       `SELECT
          COALESCE(SUM(p.amount_cents), 0)           AS total_revenue_cents,
          COALESCE(SUM(p.seller_payout_cents), 0)    AS total_payout_cents,
@@ -37,19 +140,20 @@ export class SellerService {
        JOIN bot_listings bl ON bl.id = s.bot_listing_id
        JOIN bots b ON b.id = bl.bot_id
        WHERE b.seller_id = $1 AND p.status = 'succeeded'`,
-      [sellerProfile.id],
+      [sellerId],
     );
+    return stats;
+  }
 
-    // Active subscribers per bot
-    const bots = await this.dataSource.query(
+  private async getBotStats(sellerId: string) {
+    return this.dataSource.query(
       `SELECT
          b.id, b.name, b.slug, b.status, b.mt_platform,
          b.avg_rating, b.total_subscribers, b.is_verified,
          COUNT(DISTINCT s.id) FILTER (WHERE s.status = 'active')   AS active_subs,
          COUNT(DISTINCT s.id) FILTER (WHERE s.status = 'canceled') AS churned_subs,
          COALESCE(SUM(p.seller_payout_cents) FILTER (
-           WHERE p.status = 'succeeded'
-           AND p.created_at > NOW() - INTERVAL '30 days'
+           WHERE p.status = 'succeeded' AND p.created_at > NOW() - INTERVAL '30 days'
          ), 0) AS revenue_30d_cents,
          ps.sharpe_ratio, ps.win_rate, ps.max_drawdown_pct, ps.profit_factor
        FROM bots b
@@ -65,137 +169,81 @@ export class SellerService {
        WHERE b.seller_id = $1 AND b.deleted_at IS NULL
        GROUP BY b.id, ps.sharpe_ratio, ps.win_rate, ps.max_drawdown_pct, ps.profit_factor
        ORDER BY active_subs DESC`,
-      [sellerProfile.id],
+      [sellerId],
+    );
+  }
+
+  /**
+   * Monthly sales breakdown for the last 12 months.
+   * Returns array of { month, year, sales, revenueCents }
+   */
+  private async getMonthlySales(sellerId: string) {
+    const rows = await this.dataSource.query(
+      `SELECT
+         DATE_TRUNC('month', p.created_at) AS month,
+         COUNT(p.id)                        AS sales,
+         COALESCE(SUM(p.seller_payout_cents), 0) AS revenue_cents
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       JOIN bot_listings bl ON bl.id = s.bot_listing_id
+       JOIN bots b ON b.id = bl.bot_id
+       WHERE b.seller_id = $1
+         AND p.status = 'succeeded'
+         AND p.created_at > NOW() - INTERVAL '12 months'
+       GROUP BY DATE_TRUNC('month', p.created_at)
+       ORDER BY month ASC`,
+      [sellerId],
     );
 
-    // Stripe Connect balance (live payout balance)
-    let stripeBalance = null;
-    if (sellerProfile.stripe_account_id && sellerProfile.stripe_onboarding_done) {
-      try {
-        const balance = await this.stripe.balance.retrieve({
-          stripeAccount: sellerProfile.stripe_account_id,
-        });
-        stripeBalance = {
-          available: balance.available.map((b) => ({
-            currency: b.currency.toUpperCase(),
-            amountCents: b.amount,
-            formatted: `$${(b.amount / 100).toFixed(2)}`,
-          })),
-          pending: balance.pending.map((b) => ({
-            currency: b.currency.toUpperCase(),
-            amountCents: b.amount,
-            formatted: `$${(b.amount / 100).toFixed(2)}`,
-          })),
-        };
-      } catch (err) {
-        this.logger.warn({ msg: 'Could not fetch Stripe balance', userId, error: err.message });
-      }
-    }
+    return rows.map((r) => ({
+      month: new Date(r.month).toISOString().slice(0, 7), // "2025-01"
+      sales: parseInt(r.sales, 10),
+      revenueCents: parseInt(r.revenue_cents, 10),
+      revenue: (parseInt(r.revenue_cents, 10) / 100).toFixed(2),
+    }));
+  }
+
+  /**
+   * Refund summary for the seller.
+   */
+  private async getRefunds(sellerId: string) {
+    const [stats] = await this.dataSource.query(
+      `SELECT
+         COUNT(p.id)                         AS total_refunds,
+         COALESCE(SUM(p.amount_cents), 0)    AS total_refunded_cents
+       FROM payments p
+       JOIN subscriptions s ON s.id = p.subscription_id
+       JOIN bot_listings bl ON bl.id = s.bot_listing_id
+       JOIN bots b ON b.id = bl.bot_id
+       WHERE b.seller_id = $1 AND p.status = 'refunded'`,
+      [sellerId],
+    );
 
     return {
-      seller: {
-        displayName: sellerProfile.display_name,
-        isVerified: sellerProfile.is_verified_seller,
-        stripeConnected: !!sellerProfile.stripe_onboarding_done,
-        stripeOnboardingUrl: !sellerProfile.stripe_onboarding_done
-          ? await this.getStripeOnboardingUrl(userId, sellerProfile)
-          : null,
-      },
-      revenue: {
-        totalCents: parseInt(revenueStats.total_payout_cents),
-        last30dCents: parseInt(revenueStats.payout_30d_cents),
-        last7dCents: parseInt(revenueStats.payout_7d_cents),
-        totalPayments: parseInt(revenueStats.total_payments),
-        formatted: {
-          total: `$${(parseInt(revenueStats.total_payout_cents) / 100).toFixed(2)}`,
-          last30d: `$${(parseInt(revenueStats.payout_30d_cents) / 100).toFixed(2)}`,
-          last7d: `$${(parseInt(revenueStats.payout_7d_cents) / 100).toFixed(2)}`,
-        },
-      },
-      stripeBalance,
-      bots: bots.map((b: Record<string, unknown>) => ({
-        ...b,
-        activeSubs: parseInt(b.active_subs as string),
-        churnedSubs: parseInt(b.churned_subs as string),
-        revenue30dCents: parseInt(b.revenue_30d_cents as string),
-        revenue30dFormatted: `$${(parseInt(b.revenue_30d_cents as string) / 100).toFixed(2)}`,
-      })),
+      count: parseInt(stats.total_refunds, 10),
+      totalCents: parseInt(stats.total_refunded_cents, 10),
+      total: (parseInt(stats.total_refunded_cents, 10) / 100).toFixed(2),
     };
   }
 
-  /** Recent sales for a seller */
-  async getRecentSales(userId: string, page = 1, limit = 20) {
-    const sellerProfile = await this.getSellerProfile(userId);
-    const offset = (page - 1) * limit;
-
-    const [sales, countResult] = await Promise.all([
-      this.dataSource.query(
-        `SELECT
-           s.id AS subscription_id,
-           b.name AS bot_name,
-           bl.listing_type AS plan,
-           p.amount_cents,
-           p.seller_payout_cents,
-           p.status AS payment_status,
-           p.created_at AS sale_date,
-           s.status AS subscription_status,
-           COALESCE(bp.display_name, 'Buyer') AS buyer_name
-         FROM payments p
-         JOIN subscriptions s ON s.id = p.subscription_id
-         JOIN bot_listings bl ON bl.id = s.bot_listing_id
-         JOIN bots b ON b.id = bl.bot_id
-         JOIN users u ON u.id = s.user_id
-         LEFT JOIN buyer_profiles bp ON bp.user_id = u.id
-         WHERE b.seller_id = $1
-         ORDER BY p.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [sellerProfile.id, limit, offset],
-      ),
-      this.dataSource.query(
-        `SELECT COUNT(*) FROM payments p
-         JOIN subscriptions s ON s.id = p.subscription_id
-         JOIN bot_listings bl ON bl.id = s.bot_listing_id
-         JOIN bots b ON b.id = bl.bot_id
-         WHERE b.seller_id = $1`,
-        [sellerProfile.id],
-      ),
-    ]);
-
-    return { data: sales, total: parseInt(countResult[0].count, 10), page, limit };
-  }
-
-  /** Stripe Connect onboarding — creates/returns account link */
-  async getStripeOnboardingUrl(userId: string, profile?: Record<string, unknown>) {
-    const sellerProfile = profile ?? (await this.getSellerProfile(userId));
-    const frontendUrl = this.config.get<string>('FRONTEND_URL', 'http://localhost:3000');
-
-    let accountId = sellerProfile.stripe_account_id as string | undefined;
-    if (!accountId) {
-      const account = await this.stripe.accounts.create({ type: 'express' });
-      accountId = account.id;
-      await this.dataSource.query(
-        `UPDATE seller_profiles SET stripe_account_id = $1 WHERE user_id = $2`,
-        [accountId, userId],
-      );
+  private async getStripeBalance(stripeAccountId: string | null) {
+    if (!stripeAccountId) return null;
+    try {
+      const balance = await this.stripe.balance.retrieve({ stripeAccount: stripeAccountId });
+      return {
+        available: balance.available.map((b) => ({
+          amount: b.amount,
+          currency: b.currency,
+          display: `${(b.amount / 100).toFixed(2)} ${b.currency.toUpperCase()}`,
+        })),
+        pending: balance.pending.map((b) => ({
+          amount: b.amount,
+          currency: b.currency,
+          display: `${(b.amount / 100).toFixed(2)} ${b.currency.toUpperCase()}`,
+        })),
+      };
+    } catch {
+      return null; // Stripe account not yet onboarded
     }
-
-    const accountLink = await this.stripe.accountLinks.create({
-      account: accountId,
-      refresh_url: `${frontendUrl}/dashboard/seller?stripe=refresh`,
-      return_url: `${frontendUrl}/dashboard/seller?stripe=connected`,
-      type: 'account_onboarding',
-    });
-
-    return accountLink.url;
-  }
-
-  private async getSellerProfile(userId: string) {
-    const [profile] = await this.dataSource.query(
-      `SELECT id, display_name, is_verified_seller, stripe_account_id, stripe_onboarding_done
-       FROM seller_profiles WHERE user_id = $1`,
-      [userId],
-    );
-    if (!profile) throw new ForbiddenException('Seller profile not found. Complete KYC first.');
-    return profile;
   }
 }

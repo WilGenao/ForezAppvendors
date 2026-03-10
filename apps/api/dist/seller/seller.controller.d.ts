@@ -4,31 +4,37 @@ export declare class SellerController {
     private readonly sellerService;
     constructor(sellerService: SellerService);
     getDashboard(user: JwtPayload): Promise<{
-        seller: {
-            displayName: any;
-            isVerified: any;
-            stripeConnected: boolean;
-            stripeOnboardingUrl: string;
-        };
         revenue: {
             totalCents: number;
             last30dCents: number;
             last7dCents: number;
             totalPayments: number;
-            formatted: {
-                total: string;
-                last30d: string;
-                last7d: string;
-            };
+            total: string;
+            last30d: string;
         };
-        stripeBalance: any;
+        activeSubscribers: any;
         bots: any;
+        monthlySales: any;
+        refunds: {
+            count: number;
+            totalCents: number;
+            total: string;
+        };
+        stripe: {
+            available: {
+                amount: number;
+                currency: string;
+                display: string;
+            }[];
+            pending: {
+                amount: number;
+                currency: string;
+                display: string;
+            }[];
+        };
     }>;
-    getRecentSales(user: JwtPayload, page?: number, limit?: number): Promise<{
-        data: any;
-        total: number;
-        page: number;
-        limit: number;
+    getRecentSales(user: JwtPayload, page?: number, limit?: number): Promise<any>;
+    getStripeOnboarding(user: JwtPayload): Promise<{
+        url: string;
     }>;
-    getStripeOnboarding(user: JwtPayload): Promise<string>;
 }

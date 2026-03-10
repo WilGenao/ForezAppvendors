@@ -1,0 +1,108 @@
+// apps/api/src/migrations/1720000000000-AddNotificationsAndReviews.ts
+// NEW MIGRATION — adds notifications table, expands reviews with is_moderated/helpful_count,
+// adds bot_moderation_events for audit trail.
+// Run after InitialSchema: npm run migration:run
+
+import { MigrationInterface, QueryRunner } from 'typeorm';
+
+export class AddNotificationsAndReviews1720000000000 implements MigrationInterface {
+  name = 'AddNotificationsAndReviews1720000000000';
+
+  public async up(queryRunner: QueryRunner): Promise<void> {
+
+    // ─── 1. Notification type enum ────────────────────────────────────────────
+    await queryRunner.query(`
+      DO $$ BEGIN
+        CREATE TYPE notification_type AS ENUM (
+          'NEW_SALE',
+          'BOT_APPROVED',
+          'BOT_REJECTED',
+          'NEW_REVIEW',
+          'LICENSE_EXPIRING',
+          'SUBSCRIPTION_CANCELED',
+          'PAYMENT_FAILED',
+          'KYC_APPROVED',
+          'KYC_REJECTED'
+        );
+      EXCEPTION WHEN duplicate_object THEN NULL; END $$
+    `);
+
+    // ─── 2. Notifications table ───────────────────────────────────────────────
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        type        notification_type NOT NULL,
+        message     TEXT NOT NULL,
+        read        BOOLEAN NOT NULL DEFAULT FALSE,
+        read_at     TIMESTAMPTZ,
+        metadata    JSONB,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_id   ON notifications(user_id);
+      CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, read);
+      CREATE INDEX IF NOT EXISTS idx_notifications_created   ON notifications(created_at DESC);
+    `);
+
+    // ─── 3. Expand reviews table (if not already present) ────────────────────
+    // Add columns defensively — OK if they already exist from InitialSchema
+    await queryRunner.query(`
+      DO $$ BEGIN
+        ALTER TABLE reviews ADD COLUMN IF NOT EXISTS is_moderated   BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE reviews ADD COLUMN IF NOT EXISTS helpful_count  INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE reviews ADD COLUMN IF NOT EXISTS total_reviews  INTEGER NOT NULL DEFAULT 0;
+      EXCEPTION WHEN undefined_table THEN
+        -- Reviews table doesn't exist yet; InitialSchema should create it
+        RAISE NOTICE 'reviews table not found — skipping column additions';
+      END $$
+    `);
+
+    // Add total_reviews column to bots if missing
+    await queryRunner.query(`
+      ALTER TABLE bots ADD COLUMN IF NOT EXISTS total_reviews INTEGER NOT NULL DEFAULT 0;
+    `).catch(() => {});
+
+    // ─── 4. Bot moderation events audit table ─────────────────────────────────
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS bot_moderation_events (
+        id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        bot_id     UUID NOT NULL REFERENCES bots(id) ON DELETE CASCADE,
+        actor_id   UUID NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+        action     VARCHAR(50) NOT NULL,  -- submitted | approved | rejected | suspended
+        notes      TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_bot_mod_events_bot_id ON bot_moderation_events(bot_id);
+    `);
+
+    // ─── 5. License validations log table (if missing) ───────────────────────
+    await queryRunner.query(`
+      CREATE TABLE IF NOT EXISTS license_validations (
+        id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        license_key      VARCHAR(50)  NOT NULL,  -- Truncated for privacy
+        ip_address       INET,
+        is_valid         BOOLEAN NOT NULL,
+        validation_code  VARCHAR(30)  NOT NULL,
+        validated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    await queryRunner.query(`
+      CREATE INDEX IF NOT EXISTS idx_license_val_key     ON license_validations(license_key);
+      CREATE INDEX IF NOT EXISTS idx_license_val_created ON license_validations(validated_at DESC);
+    `);
+  }
+
+  public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP TABLE IF EXISTS license_validations`);
+    await queryRunner.query(`DROP TABLE IF EXISTS bot_moderation_events`);
+    await queryRunner.query(`DROP TABLE IF EXISTS notifications`);
+    await queryRunner.query(`DROP TYPE IF EXISTS notification_type`);
+  }
+}

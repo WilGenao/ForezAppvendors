@@ -16,26 +16,26 @@ class CreateReviewDto {
 }
 exports.CreateReviewDto = CreateReviewDto;
 __decorate([
-    (0, swagger_1.ApiProperty)(),
+    (0, swagger_1.ApiProperty)({ description: 'UUID of the bot being reviewed' }),
     (0, class_validator_1.IsUUID)(),
     __metadata("design:type", String)
 ], CreateReviewDto.prototype, "botId", void 0);
 __decorate([
-    (0, swagger_1.ApiProperty)({ minimum: 1, maximum: 5 }),
+    (0, swagger_1.ApiProperty)({ minimum: 1, maximum: 5, description: 'Star rating from 1 to 5' }),
     (0, class_validator_1.IsInt)(),
     (0, class_validator_1.Min)(1),
     (0, class_validator_1.Max)(5),
     __metadata("design:type", Number)
 ], CreateReviewDto.prototype, "rating", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)(),
+    (0, swagger_1.ApiPropertyOptional)({ maxLength: 200 }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MaxLength)(200),
     __metadata("design:type", String)
 ], CreateReviewDto.prototype, "title", void 0);
 __decorate([
-    (0, swagger_1.ApiPropertyOptional)(),
+    (0, swagger_1.ApiPropertyOptional)({ maxLength: 2000 }),
     (0, class_validator_1.IsOptional)(),
     (0, class_validator_1.IsString)(),
     (0, class_validator_1.MaxLength)(2000),

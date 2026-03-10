@@ -1,4 +1,5 @@
 // apps/api/src/app.module.ts
+// MODIFIED — added LeaderboardModule; NotificationsModule now fully implemented
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -15,6 +16,7 @@ import { AdminModule } from './admin/admin.module';
 import { SellerModule } from './seller/seller.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { LeaderboardModule } from './leaderboard/leaderboard.module';
 import { HealthModule } from './health/health.module';
 
 @Module({
@@ -28,9 +30,6 @@ import { HealthModule } from './health/health.module';
           type: 'postgres',
           url: config.getOrThrow<string>('DATABASE_URL'),
           entities: [__dirname + '/**/*.entity{.ts,.js}'],
-          // FIX: In production, enable SSL with proper certificate verification.
-          // rejectUnauthorized: false was a security risk (MITM vulnerability).
-          // Set DB_SSL=true in your production environment.
           ssl: isProduction && config.get('DB_SSL') === 'true'
             ? { rejectUnauthorized: true }
             : false,
@@ -46,8 +45,6 @@ import { HealthModule } from './health/health.module';
         url: config.getOrThrow<string>('REDIS_URL'),
       }),
     }),
-    // FIX: Per-endpoint throttle overrides in controllers take precedence.
-    // This global limit (100/min) is the fallback for endpoints without specific limits.
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     AuthModule,
     UsersModule,
@@ -60,7 +57,8 @@ import { HealthModule } from './health/health.module';
     SellerModule,
     SubscriptionsModule,
     NotificationsModule,
-    HealthModule, // NEW: Proper health check module
+    LeaderboardModule, // NEW
+    HealthModule,
   ],
   providers: [],
 })

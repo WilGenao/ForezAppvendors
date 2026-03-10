@@ -125,7 +125,7 @@ let AdminService = AdminService_1 = class AdminService {
             this.dataSource.query(`SELECT
            u.id, u.email, u.status, u.email_verified_at, u.created_at, u.last_login_at,
            COALESCE(
-             json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL AND ur.revoked_at IS NULL),
+             json_agg(ur.role) FILTER (WHERE ur.role IS NOT NULL AND ur.is_active = TRUE),
              '[]'
            ) AS roles,
            (SELECT status FROM kyc_verifications WHERE user_id = u.id

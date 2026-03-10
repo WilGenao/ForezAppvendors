@@ -9,11 +9,12 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.MarketplaceModule = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
-const ioredis_1 = require("@nestjs-modules/ioredis");
-const config_1 = require("@nestjs/config");
 const marketplace_controller_1 = require("./marketplace.controller");
 const marketplace_service_1 = require("./marketplace.service");
+const moderation_controller_1 = require("./moderation.controller");
+const moderation_service_1 = require("./moderation.service");
 const bot_entity_1 = require("./entities/bot.entity");
+const notifications_module_1 = require("../notifications/notifications.module");
 let MarketplaceModule = class MarketplaceModule {
 };
 exports.MarketplaceModule = MarketplaceModule;
@@ -21,17 +22,15 @@ exports.MarketplaceModule = MarketplaceModule = __decorate([
     (0, common_1.Module)({
         imports: [
             typeorm_1.TypeOrmModule.forFeature([bot_entity_1.Bot]),
-            ioredis_1.RedisModule.forRootAsync({
-                inject: [config_1.ConfigService],
-                useFactory: (config) => ({
-                    type: 'single',
-                    url: config.get('REDIS_URL', 'redis://localhost:6379'),
-                }),
-            }),
+            notifications_module_1.NotificationsModule,
         ],
-        controllers: [marketplace_controller_1.MarketplaceController],
-        providers: [marketplace_service_1.MarketplaceService],
-        exports: [marketplace_service_1.MarketplaceService],
+        controllers: [
+            marketplace_controller_1.MarketplaceController,
+            moderation_controller_1.ModerationController,
+            moderation_controller_1.AdminModerationController,
+        ],
+        providers: [marketplace_service_1.MarketplaceService, moderation_service_1.ModerationService],
+        exports: [marketplace_service_1.MarketplaceService, moderation_service_1.ModerationService],
     })
 ], MarketplaceModule);
 //# sourceMappingURL=marketplace.module.js.map

@@ -16,7 +16,6 @@ exports.UsersService = void 0;
 const common_1 = require("@nestjs/common");
 const typeorm_1 = require("@nestjs/typeorm");
 const typeorm_2 = require("typeorm");
-const typeorm_3 = require("typeorm");
 const user_entity_1 = require("./entities/user.entity");
 let UsersService = class UsersService {
     constructor(userRepo, dataSource) {
@@ -51,6 +50,9 @@ let UsersService = class UsersService {
     async enableTotp(id) {
         await this.userRepo.update(id, { totpEnabled: true });
     }
+    async disableTotp(id) {
+        await this.userRepo.update(id, { totpEnabled: false, totpSecret: null });
+    }
     async markEmailVerified(id) {
         await this.userRepo.update(id, { emailVerifiedAt: new Date(), status: 'active' });
     }
@@ -58,33 +60,41 @@ let UsersService = class UsersService {
         await this.userRepo.update(id, { passwordHash });
     }
     async getRolesForUser(userId) {
-        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND is_active = TRUE', [userId]);
         return rows.map((r) => r.role);
     }
     async getUserRoles(userId) {
-        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND revoked_at IS NULL', [userId]);
+        const rows = await this.dataSource.query('SELECT role FROM user_roles WHERE user_id = $1 AND is_active = TRUE', [userId]);
         return rows.map((r) => r.role);
     }
     async assignRole(userId, role, grantedBy, expiresAt) {
         await this.dataSource.query(`INSERT INTO user_roles (user_id, role, granted_by, expires_at)
        VALUES ($1, $2, $3, $4)
        ON CONFLICT (user_id, role) DO UPDATE
-         SET revoked_at = NULL,
+         SET is_active = TRUE,
              granted_by = EXCLUDED.granted_by,
              expires_at = EXCLUDED.expires_at`, [userId, role, grantedBy ?? null, expiresAt ?? null]);
     }
     async revokeRole(userId, role) {
-        await this.dataSource.query('UPDATE user_roles SET revoked_at = NOW() WHERE user_id = $1 AND role = $2', [userId, role]);
+        await this.dataSource.query('UPDATE user_roles SET is_active = FALSE WHERE user_id = $1 AND role = $2', [userId, role]);
     }
     async findActiveApiKey(keyHash) {
         const result = await this.dataSource.query(`SELECT ak.id as "keyId", ak.user_id as "userId", ak.scopes
        FROM api_keys ak
        WHERE ak.key_hash = $1
-         AND ak.revoked_at IS NULL
+         AND ak.is_active = TRUE
          AND (ak.expires_at IS NULL OR ak.expires_at > NOW())`, [keyHash]);
         if (!result.length)
             return null;
         return { userId: result[0].userId, keyId: result[0].keyId, scopes: result[0].scopes || [] };
+    }
+    async getUserProfile(userId) {
+        const user = await this.findById(userId);
+        if (!user)
+            throw new common_1.NotFoundException('User not found');
+        const roles = await this.getUserRoles(userId);
+        const { passwordHash, totpSecret, ...safeUser } = user;
+        return { ...safeUser, roles };
     }
 };
 exports.UsersService = UsersService;
@@ -92,6 +102,6 @@ exports.UsersService = UsersService = __decorate([
     (0, common_1.Injectable)(),
     __param(0, (0, typeorm_1.InjectRepository)(user_entity_1.User)),
     __metadata("design:paramtypes", [typeorm_2.Repository,
-        typeorm_3.DataSource])
+        typeorm_2.DataSource])
 ], UsersService);
 //# sourceMappingURL=users.service.js.map
