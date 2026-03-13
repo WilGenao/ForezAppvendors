@@ -109,7 +109,7 @@ sqlparse==0.5.3
 streamlit==1.36.0
 streamlit-autorefresh==1.0.1
 ta==0.11.0
-ta-lib @ file:///C:/Users/wilme/Downloads/ta_lib-0.6.4-cp313-cp313-win_amd64.whl#sha256=1a603084df659515d6f6107f0844678284cb2d3813eafacd4c378b0d7a6c8ffa
+TA-Lib==0.4.28
 tenacity==8.5.0
 toml==0.10.2
 tornado==6.5.4
@@ -132,3 +132,4 @@ wsproto==1.2.0
 yarl==1.20.1
 yfinance==0.2.64
 zipp==3.23.0
+slowapi==0.1.9
